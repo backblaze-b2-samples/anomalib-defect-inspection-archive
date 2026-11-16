@@ -1,4 +1,4 @@
-<!-- last_verified: 2026-09-09 -->
+<!-- last_verified: 2026-11-16 -->
 # Dev Workflows
 
 Engineering workflows for this repo: the command index, the per-task checklists,
@@ -12,6 +12,7 @@ and the release process. Two companion docs carry the reference material:
 ## Commands
 - Agent docs health: `pnpm check:agent-docs`
 - Cold-start setup: `pnpm run setup`
+- Optional ML extra (Anomalib PatchCore, PyTorch): `pnpm setup:ml`
 - Preflight environment check: `pnpm run doctor`
 - Wait for the running stack: `pnpm wait-ready`
 - API contract export: `pnpm contract:export`
@@ -29,8 +30,25 @@ and the release process. Two companion docs carry the reference material:
 - Frontend typecheck: `pnpm typecheck`
 - Frontend lint: `pnpm lint`
 - Backend lint: `pnpm lint:api`
-- E2E: `pnpm test:e2e` (run `pnpm --filter @vibe-coding-starter-kit/web exec playwright install chromium` once first)
+- E2E: `pnpm test:e2e` (run `pnpm --filter @anomalib-defect-inspection-archive/web exec playwright install chromium` once first)
 - App verification specs: `pnpm test:verify` (specs in the gitignored `apps/web/e2e/verify/`)
+- Real end-to-end self-test (B2 test bucket + ML extra, CPU forced): `make test` (runs `RUN_LIVE_B2_TESTS=1 pnpm test:live:inspection`)
+- Demo against the running dev servers (leaves flagged parts in review, opens `/review`): `make demo`
+- Fetch the VisA demo subset into the local cache: `services/api/.venv/bin/python scripts/visa_subset.py`
+
+### Working on scoring or training
+
+1. `pnpm run setup`, then `pnpm setup:ml` (installs `services/api/requirements-ml.txt`
+   into the same venv; it is never part of `requirements.lock`, `pnpm verify` or CI).
+2. Put a B2 **test** bucket in the repo-root env file.
+3. `make test`: downloads a VisA subset, creates a `selftest-<utc-ts>` line, trains
+   `v1` and `v2` on CPU from images read back from B2, scores, reviews and traces
+   parts. It never deletes what it wrote, so do not point it at a production bucket.
+4. `pnpm dev`, then `make demo` to leave a line with flagged parts for the UI.
+
+`pnpm verify` stays green without the ML extra by design: the engine modules import
+it lazily, the hermetic tests replace the scorer at the repo boundary, and
+`tests/test_structure.py` checks that importing the API never imports torch.
 
 What each gate checks, its prerequisites, and how to recover when one fails:
 [verification.md](verification.md).

@@ -279,6 +279,27 @@ To intentionally validate real connectivity with approved non-production
 credentials, run `RUN_LIVE_B2_TESTS=1 pnpm test:live:b2`. Without that explicit
 flag the live test skips, and it is never part of `pnpm verify` or CI.
 
+The inspection pipeline has its own opt-in live test, `make test`
+(`services/api/live_tests/test_inspection_flow.py`, marker `live`). It needs B2
+test-bucket credentials in the repo-root env file and the ML extra
+(`pnpm setup:ml`), forces `INSPECTION_DEVICE=cpu`, downloads a VisA subset
+(CC BY 4.0) into `services/api/.cache/visa/`, and drives the FastAPI app through
+capture (real presigned PUTs), PatchCore training of `v1` from images read back
+from B2, scoring, heatmap and Parquet assertions, the review queue, verdicts,
+training `v2` from the adjudicated set (manifest ETags checked against B2),
+activation and trace. It writes a run-unique `selftest-<utc-ts>` line and deletes
+nothing. Without the flag, the ML extra or credentials, it skips rather than
+passing.
+
+What the hermetic suite covers instead (`services/api/tests/test_inspection_*.py`,
+`tests/test_s3_client_config.py`): the key layout and serial/line-id validation,
+Parquet append and read, label history, review-queue selection, status
+derivation, training-set assembly, model-version transitions including
+`interrupted`, the 503 path without ML, the 409 on a duplicate serial, the absence
+of any inspection delete route, and the user agent and checksum settings on every
+boto3 client. It replaces only the PatchCore scorer and the B2 store at the repo
+boundary; the real scorer is exercised by `make test`.
+
 The commands are deliberately composable: use the smaller commands while
 iterating, `pnpm verify` as the usual PR gate, and `pnpm verify:full` only when
 the live local prerequisites are available.

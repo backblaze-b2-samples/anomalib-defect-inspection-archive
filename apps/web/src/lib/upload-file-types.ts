@@ -37,3 +37,15 @@ export const ACCEPTED_FILE_TYPES: Record<string, string[]> = {
   "video/quicktime": [".mov"],
   "video/webm": [".webm"],
 };
+
+/**
+ * Capture accepts part images only: PNG, or JPEG (stored as PNG by the API, so
+ * every image key ends in `.png`). Mirrors `PresignCaptureRequest.content_type`.
+ */
+export const CAPTURE_FILE_TYPES: Record<string, string[]> = {
+  "image/png": [".png"],
+  "image/jpeg": [".jpg", ".jpeg"],
+};
+
+/** Matches the API's `capture_max_bytes` default. */
+export const CAPTURE_MAX_BYTES = 20 * 1024 * 1024;

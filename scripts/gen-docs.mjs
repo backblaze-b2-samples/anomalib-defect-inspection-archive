@@ -515,7 +515,14 @@ function main() {
   // that wrote as it went would leave the tree half-updated when a later file
   // failed its size guard — which is the kind of quiet mess this whole change
   // exists to remove.
-  const plan = MODULES.map((module) => {
+  // A runbook under infra/<target>/ is generated only for a declared
+  // deployment target, so dropping a target can drop its runbook directory.
+  const modules = MODULES.filter(
+    (module) =>
+      !module.file.startsWith("infra/") ||
+      manifest.deployment_targets.some((target) => module.file === `infra/${target}/README.md`),
+  );
+  const plan = modules.map((module) => {
     const { text, changed } = applyRegions(module.file, module.regions, context);
     guardSize(module.file, text);
     return { file: module.file, text, changed };
@@ -547,7 +554,7 @@ function main() {
     }
 
     process.stdout.write(
-      `gen:docs check passed (${MODULES.length + 1} files current against ${DEFAULT_MANIFEST})\n`,
+      `gen:docs check passed (${modules.length + 1} files current against ${DEFAULT_MANIFEST})\n`,
     );
     return;
   }

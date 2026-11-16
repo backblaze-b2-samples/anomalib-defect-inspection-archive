@@ -170,6 +170,16 @@ function tsType(schema) {
     return refName(schema.$ref);
   }
 
+  // `enum` (Python Enum / Literal of several values) and `const` (a Literal
+  // of one value) become a union of literal types.
+  if (Array.isArray(schema.enum)) {
+    return schema.enum.map((value) => literal(value)).join(" | ");
+  }
+
+  if (schema.const !== undefined) {
+    return literal(schema.const);
+  }
+
   if (Array.isArray(schema.anyOf) || Array.isArray(schema.oneOf)) {
     const members = schema.anyOf ?? schema.oneOf;
     const parts = [...new Set(members.map((member) => tsType(member)))];
@@ -222,6 +232,11 @@ function renderTypes(contract) {
 
   for (const name of Object.keys(schemas).sort()) {
     const schema = schemas[name];
+
+    if (Array.isArray(schema.enum)) {
+      blocks.push(`${jsDoc(schema.description, "")}export type ${name} = ${tsType(schema)};\n`);
+      continue;
+    }
 
     if (schema.type !== "object" || !schema.properties) {
       continue;

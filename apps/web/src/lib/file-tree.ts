@@ -1,4 +1,4 @@
-import type { FileMetadata } from "@vibe-coding-starter-kit/shared";
+import type { FileMetadata } from "@anomalib-defect-inspection-archive/shared";
 
 export interface TreeFolder {
   type: "folder";

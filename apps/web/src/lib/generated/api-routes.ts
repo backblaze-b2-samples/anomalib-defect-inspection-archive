@@ -11,7 +11,7 @@
 
 /** The verbs this app's routes actually use, narrowed from the contract. */
 export type ApiClientRoute = {
-  method: "delete" | "get" | "post";
+  method: "delete" | "get" | "patch" | "post" | "put";
   path: string;
 };
 
@@ -24,6 +24,8 @@ export type ApiClientRoute = {
 export const API_CLIENT_ROUTES = {
   fileByKeyDelete: { method: "delete", path: "/files-by-key" },
   legacyFileDelete: { method: "delete", path: "/files/{key}" },
+  archive: { method: "get", path: "/archive" },
+  engine: { method: "get", path: "/engine" },
   files: { method: "get", path: "/files" },
   fileByKeyDetail: { method: "get", path: "/files-by-key/detail" },
   fileByKeyDownload: { method: "get", path: "/files-by-key/download" },
@@ -35,6 +37,23 @@ export const API_CLIENT_ROUTES = {
   fileStats: { method: "get", path: "/files/stats" },
   uploadActivity: { method: "get", path: "/files/stats/activity" },
   health: { method: "get", path: "/health" },
+  inspectionStats: { method: "get", path: "/inspection/stats" },
+  lines: { method: "get", path: "/lines" },
+  lineDetail: { method: "get", path: "/lines/{line_id}" },
+  models: { method: "get", path: "/lines/{line_id}/models" },
+  modelDetail: { method: "get", path: "/lines/{line_id}/models/{version}" },
+  parts: { method: "get", path: "/lines/{line_id}/parts" },
+  partTrace: { method: "get", path: "/lines/{line_id}/parts/{serial}" },
+  reviewQueue: { method: "get", path: "/review-queue" },
+  traceSearch: { method: "get", path: "/trace" },
+  lineUpdate: { method: "patch", path: "/lines/{line_id}" },
+  lineCreate: { method: "post", path: "/lines" },
+  modelTrain: { method: "post", path: "/lines/{line_id}/models" },
+  modelActivate: { method: "post", path: "/lines/{line_id}/models/{version}/activate" },
+  partCapture: { method: "post", path: "/lines/{line_id}/parts" },
+  partScore: { method: "post", path: "/lines/{line_id}/parts/{serial}/score" },
+  partPresign: { method: "post", path: "/lines/{line_id}/parts/presign" },
   uploadPresign: { method: "post", path: "/upload/presign" },
   uploadVerify: { method: "post", path: "/upload/verify" },
+  partVerdict: { method: "put", path: "/lines/{line_id}/parts/{serial}/verdict" },
 } as const satisfies Record<string, ApiClientRoute>;

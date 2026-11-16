@@ -100,3 +100,61 @@ def test_all_layers_exist():
         assert layer_dir.exists(), f"Missing layer directory: app/{layer}/"
         init_file = layer_dir / "__init__.py"
         assert init_file.exists(), f"Missing __init__.py in app/{layer}/"
+
+
+ML_MODULES = {"torch", "torchvision", "anomalib", "lightning", "timm"}
+ANOMALY_MODULES = {"anomaly_engine.py", "anomaly_train.py", "anomaly_infer.py"}
+
+
+def _top_level_imports(filepath: Path) -> list[str]:
+    tree = ast.parse(filepath.read_text())
+    names = []
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            names.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.append(node.module)
+    return names
+
+
+def test_ml_stack_only_in_anomaly_modules_and_never_at_import_time():
+    """torch/anomalib/lightning/timm are an optional extra: contained in
+    repo/anomaly_*.py and imported lazily, so the core API runs without them."""
+    violations = []
+    for pyfile in _get_python_files(APP_ROOT):
+        rel = pyfile.relative_to(APP_ROOT.parent)
+        source = pyfile.read_text()
+        for imp in _get_imports(pyfile):
+            if imp.split(".")[0] in ML_MODULES:
+                violations.append(f"{rel}: imports {imp}")
+        if pyfile.name not in ANOMALY_MODULES:
+            for name in ML_MODULES:
+                if f'import_module("{name}' in source:
+                    violations.append(f"{rel}: lazily imports {name} outside repo/anomaly_*")
+        for imp in _top_level_imports(pyfile):
+            if imp.split(".")[0] in ML_MODULES:
+                violations.append(f"{rel}: top-level import of {imp}")
+    assert violations == [], "ML containment violations:\n" + "\n".join(violations)
+
+
+def test_pyarrow_only_in_parquet_repo_module():
+    violations = []
+    for pyfile in _get_python_files(APP_ROOT):
+        if pyfile.name == "parquet_scores.py" and pyfile.parent.name == "repo":
+            continue
+        for imp in _get_imports(pyfile):
+            if imp.split(".")[0] == "pyarrow":
+                violations.append(str(pyfile.relative_to(APP_ROOT.parent)))
+    assert violations == [], "pyarrow outside repo/parquet_scores.py:\n" + "\n".join(violations)
+
+
+def test_core_app_imports_without_the_ml_extra():
+    """Importing the API must not import torch (it may not be installed)."""
+    import subprocess
+    import sys
+
+    code = "import sys, main; sys.exit(1 if 'torch' in sys.modules else 0)"
+    result = subprocess.run(
+        [sys.executable, "-c", code], cwd=APP_ROOT.parent, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stderr

@@ -1,0 +1,19 @@
+# Optional ML extra: the Anomalib PatchCore engine used for scoring and training.
+#
+# NOT part of requirements.txt / requirements.lock, so `pnpm run setup`,
+# `pnpm verify` and CI stay light. Install it with `pnpm setup:ml`, which runs
+#   services/api/.venv/bin/python -m pip install -r services/api/requirements-ml.txt
+# Without it the API still runs: capture stores images (status `unscored`) and
+# scoring/training answer 503 with this install command.
+#
+# Verified window (2026-11-16): a real CPU PatchCore fit + score on VisA
+# `candle` images with Python 3.12 on macOS arm64, using exactly these
+# versions. torch publishes CPU wheels for Linux x86_64 and macOS arm64 at
+# these versions; on Linux with an NVIDIA GPU the default wheel also has CUDA.
+anomalib==2.7.0
+torch>=2.15.0,<2.16
+torchvision>=0.29.2,<0.30
+lightning>=2.6.6,<2.7
+timm>=1.0.31,<1.1
+torchmetrics>=1.9.0,<1.10
+kornia>=0.9.1,<0.10

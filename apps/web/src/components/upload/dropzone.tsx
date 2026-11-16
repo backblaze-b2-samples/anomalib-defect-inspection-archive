@@ -9,6 +9,13 @@ interface DropzoneProps {
   onFilesSelected: (files: File[]) => void;
   onFilesRejected: (rejections: FileRejection[]) => void;
   disabled?: boolean;
+  /** MIME type -> extensions. Defaults to the generic upload allow-list. */
+  accept?: Record<string, string[]>;
+  maxSize?: number;
+  multiple?: boolean;
+  /** Idle copy; defaults describe the generic multi-file upload. */
+  idleTitle?: string;
+  idleDescription?: string;
 }
 
 const MAX_SIZE = 100 * 1024 * 1024; // 100MB
@@ -17,6 +24,11 @@ export function Dropzone({
   onFilesSelected,
   onFilesRejected,
   disabled,
+  accept = ACCEPTED_FILE_TYPES,
+  maxSize = MAX_SIZE,
+  multiple = true,
+  idleTitle = "Drag & drop files here, or click to browse",
+  idleDescription = "Max file size: 100 MB per file",
 }: DropzoneProps) {
   const descriptionId = useId();
   const onDrop = useCallback(
@@ -38,15 +50,15 @@ export function Dropzone({
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     onDropRejected,
-    accept: ACCEPTED_FILE_TYPES,
-    maxSize: MAX_SIZE,
+    accept,
+    maxSize,
     disabled,
-    multiple: true,
+    multiple,
   });
 
   const active = isDragActive && !disabled;
-  let title = "Drag & drop files here, or click to browse";
-  let description = "Max file size: 100 MB per file";
+  let title = idleTitle;
+  let description = idleDescription;
 
   if (disabled) {
     title = "Uploads in progress";

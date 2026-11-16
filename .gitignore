@@ -69,3 +69,6 @@ services/api/data/
 
 # Vercel CLI local link state (project IDs, pulled env). Never commit it.
 .vercel
+
+# Inspection cache (filled from B2; disposable) and the local VisA subset.
+services/api/.cache/

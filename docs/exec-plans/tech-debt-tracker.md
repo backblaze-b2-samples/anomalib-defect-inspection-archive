@@ -1,4 +1,4 @@
-<!-- last_verified: 2026-08-04 -->
+<!-- last_verified: 2026-11-16 -->
 # Tech Debt Tracker
 
 Known tech debt items. Agents update this when they discover or create tech debt.
@@ -7,6 +7,10 @@ Known tech debt items. Agents update this when they discover or create tech debt
 
 | Description | Impact | Proposed Resolution | Priority |
 |---|---|---|---|
+| Line state is re-read from B2 on every inspection request | Each line view lists `parts/`, `scores/` and `labels/` and joins them in memory (write-once objects are memoized, listings are not); fine for demo-scale lines, slow for lines with many thousands of parts | Keep a compacted per-line snapshot (periodically rewritten Parquet of latest status) or query the score files with DuckDB over S3 | Medium |
+| Generic Bucket Explorer can delete inspection evidence under `lines/` | A delete there silently breaks a part's trace | Refuse deletes under `lines/` in `service/files.py`, or ship with `ALLOWED_KEY_PREFIX` excluding it | Medium |
+| Railway API build has no ML extra | Scoring and training answer 503 on Railway | Add a build variant that installs `requirements-ml.txt` (CPU torch) on a service with enough memory, and a persistent volume for `INSPECTION_CACHE_DIR` | Low |
+| Archive grid pairs heatmaps from one listing page | On a date with more than 60 heatmaps, some images show as unscored in the grid (Trace is unaffected) | Pair server-side in `/archive`, or page heatmaps by serial | Low |
 | Download counter & `/metrics` not durable across restart/replicas | Counter resets on redeploy (ephemeral FS); both fragment across replicas | Back the counter with a shared store (Redis/DB); label/aggregate metrics per instance. Relocated to `repo/counter.py` and documented in RELIABILITY.md | Medium |
 | Upload buffers the whole file in memory | ~3× file size RAM per upload; large files strain the server (event loop no longer blocked, but memory unbounded) | Stream to a temp file, or S3 multipart above a size threshold | Medium |
 | `GET /files-by-key/detail` re-downloads the whole object to recompute metadata | Rich metadata for stored files costs a full download + in-memory hash per preview; large objects are slow/expensive and buffer in API memory | Persist `FileMetadataDetail` at upload (S3 user-metadata, mind the ~2KB cap, or a sidecar/object store) and serve it without re-downloading; add a size ceiling above which detail is skipped | Medium |

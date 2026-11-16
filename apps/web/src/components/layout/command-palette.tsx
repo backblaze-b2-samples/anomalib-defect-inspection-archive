@@ -3,7 +3,11 @@
 import { useRouter } from "next/navigation";
 import {
   LayoutDashboard,
-  Upload,
+  Archive,
+  Camera,
+  ClipboardCheck,
+  Factory,
+  ScanSearch,
   FolderOpen,
   Settings,
   Sparkles,
@@ -37,7 +41,11 @@ interface CommandPaletteProps {
 
 const routes = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
-  { label: "Upload", href: "/upload", icon: Upload },
+  { label: "Capture", href: "/upload", icon: Camera },
+  { label: "Review Queue", href: "/review", icon: ClipboardCheck },
+  { label: "Lines", href: "/lines", icon: Factory },
+  { label: "Trace", href: "/trace", icon: ScanSearch },
+  { label: "Inspection Archive", href: "/archive", icon: Archive },
   { label: "Files", href: "/files", icon: FolderOpen },
   { label: "Settings", href: "/settings", icon: Settings },
   { label: "Design System", href: "/design", icon: Sparkles },

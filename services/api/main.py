@@ -27,7 +27,18 @@ from app.config import (  # noqa: E402
     REQUIRED_B2_SETTINGS,
     settings,
 )
-from app.runtime import files, health, metrics, ratelimit, upload  # noqa: E402
+from app.runtime import (  # noqa: E402
+    archive,
+    files,
+    health,
+    inspection,
+    lines,
+    metrics,
+    models,
+    ratelimit,
+    stats,
+    upload,
+)
 from app.service.files import warm_listing_cache  # noqa: E402
 
 # --- Startup validation ---
@@ -107,11 +118,12 @@ logger = logging.getLogger("api")
 
 # --- App setup ---
 
-API_TITLE = "Vibe Coding Starter Kit API"
+API_TITLE = "Anomalib Defect Inspection Archive API"
 API_DESCRIPTION = (
-    "Local API for the Vibe Coding Starter Kit template, providing file upload "
-    "and management backed by Backblaze B2. This contract documents the "
-    "template's local API, not a hosted public endpoint."
+    "Local API for the Anomalib Defect Inspection Archive sample: part images, "
+    "Anomalib PatchCore scores, heatmaps, operator verdicts and model versions, "
+    "all stored in Backblaze B2. This contract documents the sample's local API, "
+    "not a hosted public endpoint."
 )
 API_VERSION = "0.1.0"
 
@@ -159,7 +171,7 @@ app.add_middleware(
     # reflect an attacker's origin *with* credentials. Flip to True only when
     # you add cookie-based auth AND have tightened the origin allowlist.
     allow_credentials=False,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
 
@@ -167,3 +179,8 @@ app.include_router(health.router, tags=["health"])
 app.include_router(upload.router, tags=["upload"])
 app.include_router(files.router, tags=["files"])
 app.include_router(metrics.router, tags=["metrics"])
+app.include_router(lines.router, tags=["lines"])
+app.include_router(inspection.router, tags=["inspection"])
+app.include_router(models.router, tags=["models"])
+app.include_router(archive.router, tags=["archive"])
+app.include_router(stats.router, tags=["stats"])

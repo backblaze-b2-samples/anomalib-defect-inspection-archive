@@ -92,3 +92,18 @@ Defaults (in `apps/web/src/lib/query-client.tsx`):
 - `retry: 1` for transient errors; never retry 4xx (won't get better)
 - `refetchOnWindowFocus`: on (TanStack default) — dashboard self-heals
   when the user comes back to the tab
+
+### Inspection query keys
+
+Every inspection read sits under the generated `qk.lines()` parent
+(`["b2", "lines", ...]`), so one `invalidateQueries({ queryKey: qk.lines() })`
+after a capture, verdict, score, training or activation refreshes lines, parts,
+review, trace, archive and dashboard data at once (see `useInvalidateInspection`
+in `lib/queries.ts`). The generator only knows query parameters, so hooks for
+path-parameter routes append the path values to the generated key
+(`[...qk.partTrace(), lineId, serial]`); they never invent a new root. Model
+lists and model detail poll every 5 seconds only while a version is `queued` or
+`training`.
+
+Presigned image and heatmap URLs expire (15 minutes), so inspection images use
+plain `<img>` rather than `next/image`, which would cache a URL past its expiry.

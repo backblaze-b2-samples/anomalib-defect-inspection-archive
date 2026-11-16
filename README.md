@@ -1,95 +1,92 @@
-<!-- last_verified: 2026-08-12 -->
+<!-- last_verified: 2026-11-16 -->
 <!-- gen:begin readme-header -->
-# Vibe Coding Starter Kit
+# Anomalib Defect Inspection Archive
 
-Stop wiring boilerplate and start building. A well-engineered full-stack foundation — dashboard, drag-and-drop upload and a file browser — with Backblaze B2 storage already wired in, so builders skip the boilerplate loop.
+Keep every inspected image, heatmap and model version in Backblaze B2, and trace any part back to the evidence. An inspection-line archive that stores every part image in Backblaze B2, scores it with Anomalib PatchCore, keeps the heatmap and score with the model version behind it, routes high scores to operator review, and retrains new model versions from adjudicated images read back from B2.
 
 Built for developers and AI coding agents: the scaffolding, the storage
 wiring and the agent-facing docs are already done, so you start on your
 app's own features instead of rebuilding the same shell. Storage is
-**[Backblaze B2](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-oss-start)**, integrated through the S3-compatible API.
+**[Backblaze B2](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-anomalib-inspection-archive)**, integrated through the S3-compatible API.
 
 **What you get out of the box:**
 - Full-stack dashboard UI (Next.js 16, React 19, Tailwind v4, shadcn/ui, TanStack Query, Recharts)
-- File Upload — drag-and-drop upload with real-time progress
-- File Browser — list, preview, download, delete files
-- Dashboard — stats cards, upload chart, recent uploads
-- Metadata Extraction — image dimensions, EXIF, PDF info, checksums
+- Capture and Scoring — store each part image in B2 and score it with Anomalib PatchCore
+- Review Queue — operators record pass or fail on parts above the threshold
+- Retraining and Model Versions — train a new model version from adjudicated images read from B2, stored with its metrics
+- Trace — a part serial returns its image, heatmap, score, verdict and model version
+- Inspection Archive — browse images, heatmaps, scores, labels and models by line and date
+- Lines — create inspection lines and choose the active model version
+- Dashboard — parts inspected, review backlog, verdicts and archive growth
+- Bucket Explorer — browse, preview and download any object in the bucket
 - Settings — theme plus labelled demo preference fields
-- Backend with a strict layered architecture and structural tests (FastAPI, Python 3.12+, boto3, Pydantic v2, Pillow, pypdf)
+- Backend with a strict layered architecture and structural tests (FastAPI, Python 3.12+, boto3, Pydantic v2, pyarrow, Pillow, Anomalib PatchCore (PyTorch, optional ML extra))
 - Agent-optimized docs — your AI coding agent can read the repo and start contributing immediately
 <!-- gen:end readme-header -->
 
 <!-- gen:begin readme-screenshots -->
-## What it looks like
 
-**Dashboard** — stats, upload activity, and recent uploads at a glance:
-
-![Dashboard view showing stat cards, upload activity chart, and recent uploads table](docs/images/b2-starterkit-dashboard1.png)
-
-**File browser** — tree view with preview, download, and delete:
-
-![File browser view showing a tree of files with hover actions](docs/images/b2-starterkit-fileview2.png)
-
-> **Deploy your own in one click** → [Deploy to Vercel](#deploying-to-vercel). One project, one origin, no CORS to wire up.
 <!-- gen:end readme-screenshots -->
+
+## How it works
+
+```
+camera / operator ──► Capture (/upload) ──presigned PUT──► B2  lines/<line>/<date>/images/<serial>.png
+                                │
+                                ▼
+                 API: local cache (filled from B2) ──► Anomalib PatchCore (CPU, or CUDA / Apple MPS)
+                                │
+            heatmap PNG + one new Parquet score file ──► B2  lines/<line>/<date>/heatmaps/, scores/
+                                │
+                 score ≥ threshold ──► Review Queue ──► verdict label ──► B2  lines/<line>/labels/
+                                │
+     adjudicated + reference images read back from B2 ──► train v<N+1> ──► B2  lines/<line>/models/v<N+1>/
+```
+
+1. **Capture** a part image under a line and serial. The browser uploads it straight
+   to B2; the API scores it with the line's active PatchCore model.
+2. **Score**: the image score, threshold, model version and Anomalib version go into a
+   new Parquet part file; the anomaly heatmap is stored next to the image.
+3. **Review**: parts at or above the threshold wait for an operator's pass or fail.
+4. **Retrain**: `pass` parts join the normal training images and `fail` parts the
+   evaluation split. The new version is trained from images **read back from B2** and
+   stored with its checkpoint, metrics and a manifest of every image key and ETag.
+5. **Trace**: any serial returns its image, every heatmap and score with the model
+   behind it, and the verdict history.
+
+**Why B2 here.** An inspection archive only grows: every part image, every heatmap,
+every model version is kept so a result can be explained later. B2 holds all of it
+behind the S3-compatible API, with no database next to it: Parquet score files,
+JSON labels and model records sit beside the images they describe. Training reads
+its data back from the same bucket, so the archive *is* the training set.
+
+**No second API key.** Anomaly detection runs locally with open source software
+(Anomalib, Apache-2.0). Cost of a demo run is B2 storage and transactions only.
 
 ## Quick Start
 
-You need: Node.js >= 20, pnpm >= 10, Python >= 3.12, and a free **[Backblaze B2 account](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-oss-start)**.
-
-### Start a new project
-
-**Option 1: GitHub Template (recommended)**
-
-Click the green **"Use this template"** button at the top of this repo, name your project, then:
+You need: Node.js >= 20, pnpm >= 10, Python >= 3.12, and a free **[Backblaze B2 account](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-anomalib-inspection-archive)**. A GPU is optional.
 
 ```bash
-git clone https://github.com/yourorg/my-cool-app.git
-cd my-cool-app
+git clone https://github.com/backblaze-b2-samples/anomalib-b2-inspection-archive.git
+cd anomalib-b2-inspection-archive
+pnpm run setup        # .env from .env.example, workspace deps, API venv from requirements.lock
+pnpm setup:ml         # optional ML extra: Anomalib, PyTorch (CPU wheels on macOS), Lightning, timm
 ```
 
-**Option 2: Clone and reinitialize**
+> Use the `pnpm run` form for `setup` (and `doctor`): both are built-in pnpm
+> commands before pnpm 11, so bare `pnpm setup` runs pnpm's own command.
 
-```bash
-git clone https://github.com/backblaze-b2-samples/vibe-coding-starter-kit.git my-cool-app
-cd my-cool-app
-rm -rf .git
-git init
-git add .
-git commit -m "Initial commit from vibe-coding-starter-kit"
-```
+Without `pnpm setup:ml` the app still runs: captures are stored as `Unscored`, and
+scoring and training answer with the install command.
 
-Either way you get a clean project with no upstream history — ready to push to your own repo and point your agent at it.
-
-### Setup
-
-**1. Run setup**
-
-```bash
-pnpm run setup
-```
-
-This copies `.env.example` to `.env` only when `.env` does not already exist,
-installs workspace dependencies from `pnpm-lock.yaml`, creates
-`services/api/.venv` if missing, validates that an existing venv uses Python
-3.12+, and installs the API's committed Python 3.12 resolution from
-`services/api/requirements.lock`. It is safe to rerun and never overwrites an
-existing `.env`.
-
-> Use the `pnpm run` form: `setup` (like `doctor`) is a built-in pnpm command
-> before pnpm 11, so bare `pnpm setup` would run pnpm's own command instead of
-> this script.
-
-**2. Add your B2 credentials**
-
-Open `.env` in your editor and keep it visible. Then head to the [Backblaze B2 dashboard](https://secure.backblaze.com/b2_buckets.htm?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-oss-start) and:
+**Add your B2 credentials.** Open `.env` and head to the [Backblaze B2 dashboard](https://secure.backblaze.com/b2_buckets.htm?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-anomalib-inspection-archive):
 
 <!-- gen:begin readme-credentials -->
 1. **Create a bucket** and an **application key** with `Read and Write`
    permission, then paste each value into `.env`:
    - `B2_APPLICATION_KEY_ID` — B2 application key ID (**keyID** in the B2 console)
-   - `B2_APPLICATION_KEY` — B2 application key (**applicationKey**) — shown once at creation
+   - `B2_APPLICATION_KEY` — B2 application key (**applicationKey**), shown once at creation
    - `B2_BUCKET_NAME` — bucket unique name (**Bucket Unique Name** in the B2 console)
    - `B2_REGION` — the region inside the bucket's **Endpoint** (`s3.<region>.backblazeb2.com`); the S3 endpoint is derived from it
 
@@ -97,139 +94,98 @@ Open `.env` in your editor and keep it visible. Then head to the [Backblaze B2 d
    documented in `.env.example` and in the delivery runbooks.
 <!-- gen:end readme-credentials -->
 
-> Want a walkthrough? See the docs for [creating a bucket](https://www.backblaze.com/docs/cloud-storage-create-and-manage-buckets) and [creating app keys](https://www.backblaze.com/docs/cloud-storage-create-and-manage-app-keys).
+> Walkthroughs: [creating a bucket](https://www.backblaze.com/docs/cloud-storage-create-and-manage-buckets) and [creating app keys](https://www.backblaze.com/docs/cloud-storage-create-and-manage-app-keys).
 
-**3. Run it**
+Two optional inspection settings: `INSPECTION_DEVICE` (`auto` by default: CUDA, then
+Apple MPS, then CPU; or `cpu`, `cuda`, `mps`) and `INSPECTION_CACHE_DIR` (the local
+cache Anomalib reads from, filled from B2; default `services/api/.cache/inspection`,
+safe to delete).
+
+**Run it.**
 
 ```bash
-pnpm dev
+pnpm dev              # web on localhost:3000, API on localhost:8000 (/docs for Swagger)
 ```
 
-That's it. Frontend at `localhost:3000`, API at `localhost:8000`. Upload a file and see it working. Interactive API docs (Swagger UI) are at `localhost:8000/docs`, with ReDoc at `/redoc`.
+`pnpm dev` runs the `pnpm run doctor` preflight first (Node/Python versions, venv,
+placeholder `.env`, busy ports). Local scripts run on macOS, Linux and WSL2; see
+[docs/verification.md](docs/verification.md#local-environments) for sandbox and port details.
 
-`pnpm dev` runs the preflight check first — it catches the common setup gotchas (wrong Node/Python version, missing venv, missing or placeholder `.env`, ports already taken) and tells you exactly how to fix each one. Run it standalone any time with `pnpm run doctor`.
+### First run in the UI
 
-### Supported local environments
+1. **Lines** → "New line", e.g. `line-01`, "Line 1, candle station".
+2. **Capture** a handful of known-good parts as *reference: known-good*, and one or
+   two known-defective ones as *reference: known-defective*.
+3. **Models** → "Train new version" (defaults are fine). The first ready version
+   becomes active.
+4. **Capture** production parts: each is scored on arrival; flagged ones appear in
+   the **Review Queue**. Record verdicts, train `v2`, activate it, and **Trace** any
+   serial.
 
-Local scripts run on macOS, Linux, and WSL2 — native Windows isn't supported
-yet (the dev scripts use POSIX shell syntax), so use WSL2 on Windows. Cloud or
-sandboxed agent environments also need permission to install dependencies and to
-bind localhost ports; see
-[docs/verification.md](docs/verification.md#local-environments) for the sandbox,
-port-fallback, and IPv6 behavior.
+### Self-test and demo with real data
+
+```bash
+make test             # real B2 test bucket + real PatchCore on CPU, end to end
+make demo             # same flow against the running `pnpm dev`, then opens /review
+```
+
+`make test` downloads a small VisA subset, creates a run-unique `selftest-<utc-ts>`
+line, trains `v1` from reference images read back from B2, captures and scores new
+parts, records verdicts, trains `v2` from the adjudicated set and traces a part. It
+never deletes what it wrote (inspection records are never deleted), so **point it at
+a test bucket**. Expect it to take minutes on a laptop CPU.
+
+## Model, weights and data
+
+| | |
+| --- | --- |
+| Anomaly library | [Anomalib](https://github.com/open-edge-platform/anomalib) `2.7.0` (Apache-2.0), model **PatchCore**, pinned in `services/api/requirements-ml.txt` and verified with a real CPU fit and score on Python 3.12, macOS arm64 |
+| Backbone | `wide_resnet50_2`, layers `layer2` + `layer3` |
+| Weights | [`timm/wide_resnet50_2.tv2_in1k`](https://huggingface.co/timm/wide_resnet50_2.tv2_in1k), license **BSD-3-Clause** per the model card. The engine passes this exact tag, so different weights cannot be picked silently. Downloaded anonymously from the public Hugging Face Hub on first use (no token) |
+| Threshold | F1-maximising cut-off on the held-out split read from B2 (normal references plus anomalous references or `fail` verdicts); the 99th percentile of held-out normal scores when there are no anomalies. Scores and thresholds are raw PatchCore units |
+| Device | CUDA, then Apple MPS (with `PYTORCH_ENABLE_MPS_FALLBACK=1`, falling back to CPU on an unsupported op), then CPU. `make test` forces CPU. No speed claims: CPU time depends on the machine and image count |
+
+**Demo data: VisA.** The self-test and demo use the *Visual Anomaly* (VisA) dataset by
+Amazon Science, released under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+`scripts/visa_subset.py` streams the official archive
+(`https://amazon-visual-anomaly.s3.us-west-2.amazonaws.com/VisA_20220922.tar`, linked
+from [amazon-science/spot-diff](https://github.com/amazon-science/spot-diff)), extracts
+only the selected images of the chosen category (default `candle`) using the official
+split CSV, downscales them to at most 512 px and caches them locally. No dataset image
+is committed to this repository. Citation: Zou, Y., Jeong, J., Pemula, L., Zhang, D.,
+Dabeer, O. *SPot-the-Difference Self-Supervised Pre-training for Anomaly Detection and
+Segmentation*, ECCV 2022 ([arXiv:2207.14315](https://arxiv.org/abs/2207.14315)).
 
 ## When to use
 
-Use this repository as a template or sample implementation when you want to
-clone or fork a working file-management dashboard, connect it to your own B2
-bucket, and then rebrand and extend it for your application. It provides
-production-minded engineering controls—including strict architecture,
-contract checks, tests, linting, and deployment runbooks—so you can begin with
-a dependable scaffold instead of a blank prototype.
+Use this sample when you want a working, traceable visual-inspection pipeline to
+study or adapt: part images and every derived artifact on object storage, an
+open source anomaly model you can retrain from adjudicated data, and an operator
+review loop, all runnable on a laptop.
 
 ## When not to use
 
-Do not choose this repository expecting a complete hosted SaaS product or a
-drop-in production service. It does not provide managed hosting, user accounts,
-authentication, tenant isolation, billing, or on-call operations. Before using
-an adapted application in production, you own its product-specific security,
-operations, capacity, compliance, and support decisions.
-
-## Why Backblaze B2?
-
-[Backblaze B2](https://www.backblaze.com/cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-oss-start) is the object storage this kit is built around — a deliberate default, not just a demo backend:
-
-- **S3-compatible API.** B2 speaks the S3 API, so the `boto3` calls, SDKs, and tooling you already use for AWS S3 work unchanged — you just point them at B2's endpoint. This kit uses the S3-compatible API throughout (isolated in `services/api/app/repo/`), so nothing is locked to a proprietary client.
-- **Built for data-heavy apps.** B2 storage runs at a fraction of hyperscaler pricing with generous free egress to many CDN and compute partners — what you want when an AI app accumulates uploads, datasets, model artifacts, and generated media.
-- **Free to start.** A [free B2 account](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-oss-start) is enough to run everything in this repo.
-
-## Building Your App
-
-When you adapt this kit for a new app, keep the shared scaffolding and only swap out what's app-specific:
-
-- **Keep** the UI kit (`apps/web/src/components/ui/` + design tokens in `globals.css` + `/design`).
-- **Keep** the File Explorer (`/files`) and Upload (`/upload`) pages and their sidebar nav entries — they're the reusable B2-backed surface.
-- **Adapt** the Dashboard (`/`) to your use case — replace the default stats, chart, and recent uploads with metrics that reflect what your app actually does.
-- **Rebrand** by editing a single file: `apps/web/src/lib/app-config.ts` holds the app name and description (`APP_NAME`, `APP_DESCRIPTION`). Changing them there updates the page title, sidebar, and breadcrumb everywhere — no other files to touch.
-
-Full contract and rationale: [AGENTS.md §2 — Shared Scaffolding Contract](AGENTS.md#2-shared-scaffolding-contract).
-
-## Agent-First Architecture
-
-This repo is optimized for coding agents. Use the template, point your agent at it, and start building.
-
-The structure follows the principle that **repository knowledge is the system of record**. Anything an agent can't access in-context doesn't exist — so everything it needs to reason about the codebase is versioned, co-located, and discoverable from the repo itself.
-
-### How it works
-
-**[AGENTS.md](AGENTS.md) is the single source of truth for all coding agents.** Its bounded, agent-sized entry point gives agents the repository layout, architectural invariants, commands, conventions, and pointers to deeper docs. Agent-specific files (CLAUDE.md, GEMINI.md, Copilot instructions, etc.) are thin pointers back to AGENTS.md.
-
-**Architecture is enforced mechanically, not by convention.** Layering rules, import boundaries, backend application Python file-size limits, and SDK containment are verified by structural tests and lints that run on every change. When rules are enforceable by code, agents follow them reliably.
-
-**The knowledge base is structured for progressive disclosure:**
-
-```
-AGENTS.md              Single source of truth — layout, invariants, commands, conventions
-ARCHITECTURE.md        System layout, layering rules, data flows
-docs/
-  features/            Feature docs (inputs, outputs, flows, edge cases)
-  app-workflows.md     User journeys
-  dev-workflows.md     Engineering workflows, command index, releases
-  verification.md      What each gate checks, and failure recovery
-  frontend-conventions.md  Frontend conventions and data fetching
-  SECURITY.md          Security principles
-  RELIABILITY.md       Reliability expectations
-  exec-plans/          Execution plans and tech debt tracker
-```
-
-### Key design decisions
-
-| Principle | Implementation |
-|-----------|---------------|
-| Give agents a single source of truth | AGENTS.md — bounded layout, invariants, commands, conventions |
-| Enforce invariants mechanically | Structural tests + ruff + ESLint verify boundaries |
-| DRY documentation | Each fact lives in one place; no redundant files to drift |
-| Strict layered architecture | `types -> config -> repo -> service -> runtime`, enforced by tests |
-| Prefer boring, composable libraries | stdlib logging over frameworks, Pydantic over ad-hoc validation |
-| Contain external SDKs | `boto3` only in `repo/` layer — verified by structural test |
-| Keep files agent-sized | 300-line limit for backend app Python, enforced by test |
-| Docs updated with code | Same-PR requirement prevents documentation rot |
-| Structured observability | JSON logging, `/metrics` endpoint, request tracing |
-
-This approach draws from [OpenAI's experience building with Codex](https://openai.com/index/harness-engineering/): agents work best in environments with strict boundaries, predictable structure, and progressive context disclosure.
+It does not integrate cameras or PLCs, makes no line-rate or throughput claims, and
+does not claim compliance with any quality standard. It has no authentication,
+user accounts or tenant isolation: anyone who can reach the API can capture, review
+and train. Before adapting it for production you own the security, capacity,
+validation and support decisions.
 
 ## Core Features
 
 <!-- gen:begin readme-core-features -->
-- [File Upload](docs/features/file-upload.md) — drag-and-drop upload with real-time progress
-- [File Browser](docs/features/file-browser.md) — list, preview, download, delete files
-- [Dashboard](docs/features/dashboard.md) — stats cards, upload chart, recent uploads
-- [Metadata Extraction](docs/features/metadata-extraction.md) — image dimensions, EXIF, PDF info, checksums
+- [Capture and Scoring](docs/features/capture-and-scoring.md) — store each part image in B2 and score it with Anomalib PatchCore
+- [Review Queue](docs/features/review-queue.md) — operators record pass or fail on parts above the threshold
+- [Retraining and Model Versions](docs/features/retraining.md) — train a new model version from adjudicated images read from B2, stored with its metrics
+- [Trace](docs/features/trace.md) — a part serial returns its image, heatmap, score, verdict and model version
+- [Inspection Archive](docs/features/inspection-archive.md) — browse images, heatmaps, scores, labels and models by line and date
+- [Lines](docs/features/lines.md) — create inspection lines and choose the active model version
+- [Dashboard](docs/features/dashboard.md) — parts inspected, review backlog, verdicts and archive growth
+- [Bucket Explorer](docs/features/file-browser.md) — browse, preview and download any object in the bucket
 - [Settings](docs/features/settings.md) — theme plus labelled demo preference fields
 <!-- gen:end readme-core-features -->
-- [Design System](docs/design-system.md) — tokens, primitives, AI elements, the blaze generating loader, and inline `ErrorState` / `EmptyState` patterns. Live preview at `/design`.
-- Inline error handling — fetch failures surface *what's wrong* (API offline, 401, 5xx) and offer a Retry, instead of silently rendering empty state.
-- Single-source config — one `.env` at the repo root powers both API and web app, validated at startup so misconfig fails fast with a readable message.
-- Centralized data layer — every fetch goes through TanStack Query hooks in `apps/web/src/lib/queries.ts`; cache invalidation is one call after a mutation. The types, route registry and query keys underneath are generated from the API contract by `pnpm gen:api`, so the client cannot drift from the backend.
-- Checked local API contract — [`docs/api/openapi.json`](docs/api/openapi.json) plus `pnpm contract:check` catch FastAPI/client route drift; it describes the template API you run, not a hosted public endpoint.
-- Structural tests — verify layering rules, import boundaries, SDK containment, and backend application Python file-size limits
-- Structured JSON logging — every request traced with `request_id` and timing
-- `/health` endpoint — B2 connectivity check
-- `/metrics` endpoint — Prometheus-format counters (request count, latency, uploads)
-- `/docs` + `/redoc` — auto-generated interactive API docs (toggle off in prod with `ENABLE_DOCS=false`)
-- Per-IP rate limiting and magic-byte upload validation — see [SECURITY.md](docs/SECURITY.md)
-
-## Tech Stack
-
-- TypeScript, Next.js 16, React 19, Tailwind v4, shadcn/ui, Recharts
-- TanStack Query — caching, dedup, retry, stale-while-revalidate for every fetch
-- Python 3.12+, FastAPI, boto3, Pydantic v2, Pillow, pypdf
-- Backblaze B2 (S3-compatible object storage)
-- pnpm workspaces (monorepo)
 
 ## Commands
-
-The commands you reach for day to day:
 
 <!-- gen:begin readme-commands -->
 | Command | What it does |
@@ -247,39 +203,27 @@ The commands you reach for day to day:
 | `pnpm test:verify` | Run throwaway verification specs from `apps/web/e2e/verify/` against the app, with the shared browser fixtures |
 <!-- gen:end readme-commands -->
 
-`pnpm verify` is the gate to run before opening a PR. It needs
-`services/api/.venv` from `pnpm run setup`, but no B2 credentials or browser, and
-it breaks down into `pnpm verify:api` (backend lint, tests, structure),
-`pnpm verify:web` (frontend lint, unit tests, typecheck + build), and
-`pnpm check:agent-docs` (agent-doc drift).
-
-For the full command reference (`dev:web`, `dev:api`, `lint`, `test:*`,
-`check:structure`, `test:e2e`, live B2 tests), see
-[docs/dev-workflows.md](docs/dev-workflows.md#commands). For worktree/parallel-run
-notes, port-fallback behavior, and slow-run recovery, see
+Inspection-specific: `pnpm setup:ml` (install the ML extra), `make test` (live
+self-test), `make demo` (demo against `pnpm dev`). `pnpm verify` is the gate to run
+before a PR; it needs `services/api/.venv` from `pnpm run setup` but no B2
+credentials, no browser and no ML extra. It breaks down into `pnpm check:agent-docs`,
+`pnpm verify:api` (backend lint, tests, structure) and `pnpm verify:web` (generator
+drift, frontend lint, unit tests, typecheck + build). Full reference:
+[docs/dev-workflows.md](docs/dev-workflows.md#commands) and
 [docs/verification.md](docs/verification.md).
 
-## Deploying to Vercel
+## Deploying
 
-Deploys as **one Vercel project** — the Next.js web app and FastAPI API build
-from the same repo and share one origin (web at `/`, API under `/api`), so
-there's **no CORS and no second URL to wire up**.
+Local use is the primary path. A Railway deployment (two services, web and API) is
+documented in the [Railway delivery contract](infra/railway/README.md); the default
+API build installs only the core requirements, so scoring and training return 503
+there until the ML extra is added to that build. There is no Vercel target: PyTorch
+training and a model checkpoint do not fit a serverless function. Deploying is
+always a human-approved action.
 
 <!-- gen:begin readme-deploy-button -->
-[![Deploy to Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fbackblaze-b2-samples%2Fvibe-coding-starter-kit&project-name=vibe-coding-starter-kit&repository-name=vibe-coding-starter-kit&demo-title=Vibe%20Coding%20Starter%20Kit&demo-description=A%20well-engineered%20full-stack%20foundation%20%E2%80%94%20dashboard%2C%20drag-and-drop%20upload%20and%20a%20file%20browser%20%E2%80%94%20with%20Backblaze%20B2%20storage%20already%20wired%20in%2C%20so%20builders%20skip%20the%20boilerplate%20loop.&demo-image=https%3A%2F%2Fraw.githubusercontent.com%2Fbackblaze-b2-samples%2Fvibe-coding-starter-kit%2Fmain%2Fdocs%2Fimages%2Fb2-starterkit-dashboard1.png&env=B2_APPLICATION_KEY_ID%2CB2_APPLICATION_KEY%2CB2_BUCKET_NAME%2CB2_REGION&envDescription=B2%20credentials%20and%20bucket&envLink=https%3A%2F%2Fgithub.com%2Fbackblaze-b2-samples%2Fvibe-coding-starter-kit%2Fblob%2Fmain%2Finfra%2Fvercel%2FREADME.md)
+_This app does not ship a one-click deploy button._
 <!-- gen:end readme-deploy-button -->
-
-Set your B2 credentials and bucket, and you're live. Uploads go **directly from
-the browser to B2** (presigned PUT), so Vercel's 4.5 MB payload limit doesn't
-apply — you keep the 100 MB default. Two things to know before a real deploy:
-
-- Your bucket's CORS must allow the deploy origin.
-- The deployed API is unauthenticated and bucket-wide — use a dedicated B2
-  bucket/prefix and key for any preview.
-
-Full setup — variable reference, the two-Projects alternative, security,
-preview/production, `/health` checks, and rollback — is in the
-[Vercel delivery contract](infra/vercel/README.md).
 
 ## Documentation Map
 
@@ -288,7 +232,7 @@ preview/production, `/health` checks, and rollback — is in the
 | --- | --- |
 | [AGENTS.md](AGENTS.md) | Agent table of contents — start here |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System layout, layering, data flows |
-| [docs/features/](docs/features/) | Feature docs (file upload, file browser, dashboard, metadata extraction, settings) |
+| [docs/features/](docs/features/) | Feature docs (capture and scoring, review queue, retraining and model versions, trace, inspection archive, lines, dashboard, bucket explorer, settings) |
 | [docs/design-system.md](docs/design-system.md) | Design tokens, primitives, loader, error/empty states |
 | [docs/app-workflows.md](docs/app-workflows.md) | User journeys |
 | [docs/dev-workflows.md](docs/dev-workflows.md) | Engineering workflows, command index, releases |
@@ -297,66 +241,29 @@ preview/production, `/health` checks, and rollback — is in the
 | [docs/SECURITY.md](docs/SECURITY.md) | Security principles |
 | [docs/RELIABILITY.md](docs/RELIABILITY.md) | Reliability expectations |
 | [docs/api/openapi.json](docs/api/openapi.json) | The checked-in API contract the client seam is generated from |
-| [infra/vercel/README.md](infra/vercel/README.md) | Vercel deployment contract |
 | [infra/railway/README.md](infra/railway/README.md) | Railway delivery contract |
 | [docs/exec-plans/](docs/exec-plans/) | Execution plans, tech debt, and the sample manifest |
 <!-- gen:end readme-doc-map -->
 
-## FAQ
+## Agent-first repository
 
-**What is the Vibe Coding Starter Kit?**
-An open-source, full-stack template (Next.js 16 + FastAPI) with a pre-built dashboard UI, drag-and-drop file upload, and file browser, with [Backblaze B2](https://www.backblaze.com/cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-oss-start) cloud storage already integrated. You clone it, connect it to your own B2 bucket, then rebrand and extend it for your app.
-
-**Is it free?**
-Yes. The code is MIT-licensed (see [License](#license)), and Backblaze B2 offers a free account to get started.
-
-**Can I use it in production?**
-It's a template/sample Backblaze maintains to help developers get started with B2. Production use is possible with caution and requires your own validation — you own the product-specific security, operations, capacity, compliance, and support decisions for anything you adapt, and the repository software carries no SLA. See [When not to use](#when-not-to-use) and [Maintenance and support](#maintenance-and-support).
-
-**Does it include authentication, user accounts, or multi-tenant isolation?**
-No. It does not provide managed hosting, user accounts, authentication, tenant isolation, billing, or on-call operations. Add whatever your application requires on top of the scaffold.
-
-**Do I have to use Backblaze B2?**
-It integrates Backblaze B2 through the S3-compatible API, and B2 is the storage the kit is built around. You supply your own B2 bucket and application key during setup.
-
-**Is it really built for AI coding agents?**
-Yes. [AGENTS.md](AGENTS.md) is the single source of truth for coding agents, architectural boundaries are enforced mechanically by structural tests and lints (not by convention), and the docs use progressive disclosure — so an agent can read the repo and start contributing immediately.
-
-**What's the tech stack?**
-Frontend: TypeScript, Next.js 16, React 19, Tailwind v4, shadcn/ui, TanStack Query. Backend: Python 3.12+, FastAPI, boto3, Pydantic v2. Storage: Backblaze B2 (S3-compatible). See [Tech Stack](#tech-stack).
-
-**How do I rebrand it for my own app?**
-Edit a single file — `apps/web/src/lib/app-config.ts` (`APP_NAME`, `APP_DESCRIPTION`) — and the page title, sidebar, and breadcrumb update everywhere. See [Building Your App](#building-your-app).
-
-**How do I deploy it?**
-It deploys to Vercel as a single project — the web app and FastAPI API build from the same repo and share one origin (web at `/`, API under `/api`), so there's no CORS or second URL to wire up. A Railway path is also documented. Deploying is always a human-approved action — see [Deploying to Vercel](#deploying-to-vercel).
-
-**Does it work on Windows?**
-Local scripts are supported on macOS, Linux, and WSL2. Native Windows is not supported yet — use WSL2 on Windows.
-
-**Where do I get help or report bugs?**
-Report repository defects and feature requests through [GitHub Issues](https://github.com/backblaze-b2-samples/vibe-coding-starter-kit/issues). For B2 account, billing, service, or API help, use [Backblaze Support](https://www.backblaze.com/help).
+[AGENTS.md](AGENTS.md) is the single source of truth for coding agents; CLAUDE.md,
+GEMINI.md and the Copilot instructions point to it. Layering
+(`types -> config -> repo -> service -> runtime`), SDK containment (boto3, pyarrow
+and the ML stack each confined to `repo/`), the 300-line limit and the generated API
+seam are enforced by tests and `pnpm verify`, not by convention.
 
 ## Maintenance and support
 
-Backblaze maintains this open-source template/sample to help developers get
-started with B2. Production use is possible with caution and requires your own
-validation. Report repository defects and feature requests through
-[GitHub Issues](https://github.com/backblaze-b2-samples/vibe-coding-starter-kit/issues);
+Backblaze maintains this open-source sample to help developers get started with B2.
+Report repository defects and feature requests through
+[GitHub Issues](https://github.com/backblaze-b2-samples/anomalib-b2-inspection-archive/issues);
 for B2 account, billing, service, or API help, use
-[Backblaze Support](https://www.backblaze.com/help). This template/sample is
-not covered by the Backblaze service level agreement, and no SLA is provided
-for the repository software; any B2 service or support commitments are governed
-separately by the applicable Backblaze terms and support plan.
-
-## Contributing
-
-Start with [AGENTS.md](AGENTS.md). It's the map — everything else is discoverable from there. For local commit hooks, follow [the pre-commit workflow](docs/verification.md#pre-commit).
+[Backblaze Support](https://www.backblaze.com/help). This sample is not covered by the
+Backblaze service level agreement, and no SLA is provided for the repository
+software.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
-
-## Related projects
-
-**Claude Agent B2 Skill** — manage Backblaze B2 from your terminal using natural language (list/search, audits, stale or large file detection, security checks, safe cleanup). Repo: [claude-skill-b2-cloud-storage](https://github.com/backblaze-b2-samples/claude-skill-b2-cloud-storage).
+MIT License, see [LICENSE](LICENSE). Anomalib is Apache-2.0; the backbone weights are
+BSD-3-Clause; the VisA dataset is CC BY 4.0 and is downloaded, not redistributed.

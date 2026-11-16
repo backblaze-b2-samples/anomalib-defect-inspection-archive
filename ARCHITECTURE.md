@@ -1,20 +1,24 @@
-<!-- last_verified: 2026-08-06 -->
+<!-- last_verified: 2026-11-16 -->
 # Architecture
 
 ## Components
 
 <!-- gen:begin arch-components -->
-A well-engineered full-stack foundation — dashboard, drag-and-drop upload and a file browser — with Backblaze B2 storage already wired in, so builders skip the boilerplate loop.
+An inspection-line archive that stores every part image in Backblaze B2, scores it with Anomalib PatchCore, keeps the heatmap and score with the model version behind it, routes high scores to operator review, and retrains new model versions from adjudicated images read back from B2.
 
 - **apps/web/** — Next.js 16, React 19, Tailwind v4, shadcn/ui, TanStack Query, Recharts
-  - File Upload (`/upload`) — drag-and-drop upload with real-time progress
-  - File Browser (`/files`) — list, preview, download, delete files
-  - Dashboard (`/`) — stats cards, upload chart, recent uploads
+  - Capture and Scoring (`/upload`) — store each part image in B2 and score it with Anomalib PatchCore
+  - Review Queue (`/review`) — operators record pass or fail on parts above the threshold
+  - Retraining and Model Versions (`/lines`) — train a new model version from adjudicated images read from B2, stored with its metrics
+  - Trace (`/trace`) — a part serial returns its image, heatmap, score, verdict and model version
+  - Inspection Archive (`/archive`) — browse images, heatmaps, scores, labels and models by line and date
+  - Lines (`/lines`) — create inspection lines and choose the active model version
+  - Dashboard (`/`) — parts inspected, review backlog, verdicts and archive growth
+  - Bucket Explorer (`/files`) — browse, preview and download any object in the bucket
   - Settings (`/settings`) — theme plus labelled demo preference fields
-- **services/api/** — FastAPI, Python 3.12+, boto3, Pydantic v2, Pillow, pypdf
+- **services/api/** — FastAPI, Python 3.12+, boto3, Pydantic v2, pyarrow, Pillow, Anomalib PatchCore (PyTorch, optional ML extra)
   - REST API for every operation the frontend consumes, exported to `docs/api/openapi.json`
   - Backblaze B2 (S3-compatible API) access isolated in the `repo/` layer
-  - Metadata Extraction — image dimensions, EXIF, PDF info, checksums
   - Structured JSON logging with request tracing, plus `/health` and Prometheus `/metrics`
 - **packages/shared/** — TypeScript types generated from the API contract by `pnpm gen:api`, consumed by `apps/web/` as a workspace dependency (pnpm workspaces)
 <!-- gen:end arch-components -->
@@ -28,7 +32,7 @@ types/     Pydantic models — no logic, no imports from other layers
   |
 config/    Settings (pydantic-settings) — depends only on types
   |
-repo/      Data access (boto3 B2 client) — no business logic
+repo/      Data access and engines (boto3, pyarrow, Pillow, Anomalib) — no business logic
   |
 service/   Business logic — calls repo, returns types
   |
@@ -39,7 +43,9 @@ runtime/   FastAPI routes — calls service, never repo directly
 
 1. Dependencies flow downward only: `types` -> `config` -> `repo` -> `service` -> `runtime`
 2. No backward imports (e.g., service must not import from runtime)
-3. `boto3` only allowed in `repo/` layer
+3. `boto3` only allowed in `repo/` layer; `pyarrow` only in `repo/parquet_scores.py`; the ML
+   stack (`torch`, `torchvision`, `anomalib`, `lightning`, `timm`) only in `repo/anomaly_*.py`
+   and only inside functions, so the API imports without it
 4. All boundary data uses Pydantic models (no raw dicts across layers)
 5. Authored Python files under `services/api/app/` stay under 300 lines
 
@@ -62,34 +68,51 @@ services/api/
 
 ## Boundary Invariants
 
-- **No external SDK leakage**: `boto3` is only imported in `app/repo/`. All other layers interact with B2 through the repo interface.
+- **No external SDK leakage**: `boto3` is only imported in `app/repo/`. All other layers interact with B2 through the repo interface (`b2_client.py` builds the one client; `b2_store.py` adds put/get/head/list primitives for the inspection data).
+- **Optional ML extra, contained**: Anomalib PatchCore runs in `repo/anomaly_engine.py` (availability, device, pinned backbone weights), `repo/anomaly_train.py` (Folder datamodule + Engine) and `repo/anomaly_infer.py` (scorer, checkpoint load). Without `requirements-ml.txt` the API still boots; scoring and training answer 503 with the install command. `tests/test_structure.py` asserts both the containment and that `import main` does not import torch.
+- **Anomalib never touches B2**: every image and checkpoint it reads comes from `repo/local_cache.py`, which fills a local directory from B2 through the app's boto3 client, keyed by object key + ETag. So every B2 request carries the custom user agent, and the cache can be deleted at any time.
+- **One key layout**: `service/keys.py` is the only place B2 keys under `lines/` are built, and it validates line ids, serials, versions and dates first.
 - **No raw dicts at boundaries**: All data crossing layer boundaries uses typed Pydantic models.
-- **No cross-layer mutable state**: Configuration is read-only after init, and no mutable state is shared *between* layers. Intra-layer caches/counters (the listing cache in `repo/list_cache.py`, the B2 connectivity cache in `repo/b2_client.py`, the download counter in `repo/counter.py`, the rate-limit and metrics state in `runtime/`) are module-local and guarded by a `threading.Lock`. The listing cache also owns the only background thread in the app: a stale entry is served immediately while that thread re-scans (stale-while-revalidate), and `main.lifespan` warms it once at startup so no user pays for the cold full-bucket scan.
-- **Validated inputs**: All HTTP inputs validated by FastAPI/Pydantic. File keys reject empty and path-traversal patterns; optional prefix confinement via `ALLOWED_KEY_PREFIX` (off by default).
+- **No cross-layer mutable state**: Configuration is read-only after init, and no mutable state is shared *between* layers. Intra-layer caches/counters (the listing cache in `repo/list_cache.py`, the B2 connectivity cache in `repo/b2_client.py`, the write-once object memo in `repo/b2_store.py`, the resident scorers in `repo/anomaly_infer.py`, the download counter in `repo/counter.py`, the training queue in `service/train_runner.py`, the rate-limit and metrics state in `runtime/`) are module-local and guarded by a lock. Two background threads exist: the listing cache's stale-while-revalidate refresh, and the single training worker.
+- **Validated inputs**: All HTTP inputs validated by FastAPI/Pydantic. File keys reject empty and path-traversal patterns; optional prefix confinement via `ALLOWED_KEY_PREFIX` (off by default; `lines/` confines the by-key routes to this app's data).
+
+## Inspection Data Model
+
+B2 is the only store. An inspection record is not one object but the union of write-once objects under its line, and its status is derived on every read, never stored:
+
+```
+lines/<line-id>/line.json                                    Line (name, description, active model)
+lines/<line-id>/<date>/images/<serial>.png                   captured image (never overwritten after capture)
+lines/<line-id>/<date>/heatmaps/<serial>.<version>.png       heatmap per scoring, one per model version
+lines/<line-id>/scores/date=<date>/<utc-ts>-<uuid>.parquet   score rows, one new part file per scoring call
+lines/<line-id>/labels/<serial>/<utc-ts>.json                verdict history (latest wins, earlier kept)
+lines/<line-id>/parts/<serial>.json                          part index: date, image key, ETag, reference label
+lines/<line-id>/models/<version>/version.json                ModelVersion record
+lines/<line-id>/models/<version>/training-set.json           every training/eval key + ETag + label
+lines/<line-id>/models/<version>/model.ckpt                  PatchCore memory bank + config
+lines/<line-id>/models/<version>/metrics.json                threshold, AUROC, F1, counts
+```
+
+Status: the latest verdict wins (`passed` / `failed`); otherwise the latest score against its own threshold (`in_review` at or above, `below_threshold` under); otherwise `unscored`. Score Parquet columns: `line_id`, `serial`, `capture_date`, `image_key`, `heatmap_key`, `score`, `threshold`, `above_threshold`, `model_version`, `backbone`, `anomalib_version`, `scored_at`; readers tolerate added columns. Because part index, labels and score files never change once written, `b2_store.get_immutable()` memoizes them in memory; listings are always fresh.
 
 ## Deployment
 
-- **Local dev** — `pnpm dev` runs both services via `concurrently`
+- **Local dev (primary)** — `pnpm dev` runs both services via `concurrently`
   - Web: `localhost:3000`
   - API: `localhost:8000`
+  - Scoring and training run in the API process: `pnpm setup:ml` installs the ML extra into `services/api/.venv`. Device is CUDA, then Apple MPS, then CPU (`INSPECTION_DEVICE` overrides); a GPU is optional.
 - **Railway** — two services from the same repository: `web` builds from the
   repository root because it consumes `packages/shared`; `api` builds from
   `services/api`. Each service's versioned config sits at its own root —
-  `railway.json` and `services/api/railway.json` — the default path Railway
-  discovers, so a one-click template deploy inherits the same build, start, and
-  health behavior with nothing to configure by hand. The human-approved
-  staging/production contract lives in [infra/railway/README.md](infra/railway/README.md).
-- **Vercel** — one project using [Vercel Services](https://vercel.com/docs/services):
-  the `web` (Next.js) and `api` (FastAPI) services build from the same repo and
-  share one origin — the web app at `/`, the API under `/api`. The repo-root
-  `vercel.json` declares both services and routes `/api/*` to the API service;
-  the Vercel-only `services/api/index.py` strips the `/api` prefix so FastAPI
-  keeps its native paths (`/health`, `/files`, …). Uploads go directly from the
-  browser to B2 via a presigned PUT (see
-  [File Upload](docs/features/file-upload.md)), so they bypass the Function's
-  4.5 MB payload ceiling entirely — the bucket must allow the deploy origin in
-  its CORS. A two-separate-Projects alternative and the full delivery contract
-  live in [infra/vercel/README.md](infra/vercel/README.md).
+  `railway.json` and `services/api/railway.json`. The default API image installs
+  only the core requirements, so a Railway API serves capture, review, trace and
+  the archive and answers 503 for scoring and training until the ML extra is
+  added to its build (CPU torch on a service with enough memory). The
+  human-approved staging/production contract lives in
+  [infra/railway/README.md](infra/railway/README.md).
+- **No Vercel target** — PatchCore training and scoring load PyTorch, a
+  pretrained CNN backbone and a model checkpoint, which neither fit nor finish
+  inside a serverless function, so the starter kit's Vercel deployment was removed.
 
 External provisioning and deployment remain explicit user-approved actions.
 
@@ -97,44 +120,48 @@ External provisioning and deployment remain explicit user-approved actions.
 
 <!-- gen:begin arch-data-stores -->
 - **Backblaze B2 (S3-compatible API)** — the only data store; there is no application database
-  - Every object this app writes lives under the `uploads/` key prefix of one bucket
+  - Every object this app writes lives under the `lines/` key prefix of one bucket
   - Listing, per-key metadata and presigned URLs all come from the S3 surface below
-  - The primary entity is `FileMetadata`; one file is one object
+  - The primary entity is `InspectionRecord`; one inspection record is one object
 <!-- gen:end arch-data-stores -->
 
 ## External Services
 
 <!-- gen:begin arch-external-services -->
 - **Backblaze B2 (S3-compatible API)** — reached only through `services/api/app/repo/`, using:
-  - `put_object` — store an uploaded object
-  - `presigned PUT` — the browser uploads bytes directly to B2, bypassing the Function payload cap
-  - `list_objects_v2` — the shared full-bucket listing behind the file list and the stats cards
-  - `head_object` — cheap per-key metadata, and the /health connectivity probe
-  - `get_object` — re-read bytes to recompute rich metadata on demand
-  - `presigned GET` — download and inline preview URLs
-  - `delete_object` — remove an object
+  - `presigned PUT` — the browser uploads a captured part image straight to its line and date key
+  - `put_object` — write heatmaps, Parquet score files, verdict labels, model checkpoints, metrics and training-set manifests
+  - `head_object` — verify a capture, record ETags in the training-set manifest, and the /health probe
+  - `get_object` — fill the local cache Anomalib trains and scores from, and read records and Parquet files
+  - `list_objects_v2` — lines, parts, score files, labels, model versions, the archive and the full-bucket explorer
+  - `presigned GET` — image, heatmap, Parquet and checkpoint links for review, trace and archive
+  - `delete_object` — the generic Bucket Explorer only; no inspection record is ever deleted
 <!-- gen:end arch-external-services -->
 
 ## Trust Boundaries
 
 See [docs/SECURITY.md](docs/SECURITY.md) for full security documentation.
 
-- **Frontend -> API** — CORS-restricted to configured origins. `CORSMiddleware` is registered LAST in `main.py` (outermost) so it wraps **every** response, including uncaught-exception 500s — otherwise the browser would block error responses and the UI would only see an opaque "network error". See [docs/RELIABILITY.md](docs/RELIABILITY.md#error-handling). A per-IP rate-limit middleware sits inner to CORS; see [docs/SECURITY.md](docs/SECURITY.md#rate-limiting).
-- **API -> B2** — authenticated via application keys, signature v4
-- **Client -> B2** — presigned URLs for download (10-min expiry, forced attachment)
+- **Frontend -> API** — CORS-restricted to configured origins. `CORSMiddleware` is registered LAST in `main.py` (outermost) so it wraps **every** response, including uncaught-exception 500s. See [docs/RELIABILITY.md](docs/RELIABILITY.md#error-handling). A per-IP rate-limit middleware sits inner to CORS; see [docs/SECURITY.md](docs/SECURITY.md#rate-limiting).
+- **API -> B2** — authenticated via application keys, signature v4, custom user agent `b2ai-anomalib-inspection-archive`
+- **Client -> B2** — presigned PUT for captures (key, size and type signed), presigned GET (inline, 15-minute expiry) for images, heatmaps, Parquet and checkpoints
+- **API -> Hugging Face Hub** — the first training or scoring run downloads the public backbone weights anonymously (no token)
 
 ## Data Flows
 
-- **Upload**: Browser -> `POST /upload/presign` (API validates the declared file + signs a PUT) -> Browser PUTs bytes **directly to B2** -> `POST /upload/verify` (API HEADs + Range-sniffs the stored object) -> response
-- **List**: Browser -> `GET /files` -> service calls repo -> returns file list
-- **Download**: Browser -> `GET /files/{key}/download` -> service validates key -> repo generates presigned URL -> browser downloads
-- **Delete**: Browser -> `DELETE /files/{key}` -> service validates key -> repo deletes from B2
+- **Capture**: Browser -> `POST /lines/{line}/parts/presign` (API checks line + unused serial, signs a PUT for `lines/<line>/<date>/images/<serial>.png`) -> Browser PUTs bytes **directly to B2** -> `POST /lines/{line}/parts` (API reads the image back, validates, converts JPEG to PNG, writes the part index) -> scoring
+- **Score**: API fetches the checkpoint and image from B2 into the local cache -> PatchCore (raw score + anomaly map) -> heatmap PNG `put_object` -> one new Parquet part file `put_object`
+- **Review**: `GET /review-queue` derives in-review parts from scores and labels -> `PUT .../verdict` appends a label object
+- **Train**: `POST /lines/{line}/models` lists reference + adjudicated parts, heads each image for its ETag, writes `training-set.json` and a `queued` record -> the training worker fills the cache from B2, runs Anomalib `Folder` + `Engine.fit`, scores the eval split, writes `model.ckpt`, `metrics.json` and the `ready` record
+- **Trace**: `GET /trace?serial=` lists `parts/<serial-prefix>` per line -> `GET /lines/{line}/parts/{serial}` joins part index, every score row, every label and the model record
+- **Bucket Explorer** (unchanged from the kit): list, download, preview and delete any object through `/files*`
 
 ## Observability
 
 - Structured JSON logging on all requests with `request_id`
 - Request timing middleware (logs duration per request; also the catch-all that converts uncaught exceptions to a typed JSON 500)
 - `/metrics` endpoint (Prometheus format: request count, latency, upload count)
+- Training and scoring log the device, memory-bank size and the Parquet key written
 - `/health` endpoint (B2 connectivity check)
 
 ## API Contract
@@ -158,6 +185,8 @@ still in step.
 | --- | --- | --- |
 | `DELETE /files-by-key` | `DeleteFileResponse` | `fileByKeyDelete` |
 | `DELETE /files/{key}` | `DeleteFileResponse` | `legacyFileDelete` |
+| `GET /archive` | `ArchivePage` | `archive` |
+| `GET /engine` | `EngineStatus` | `engine` |
 | `GET /files` | `FileMetadata[]` | `files` |
 | `GET /files-by-key/detail` | `FileMetadataDetail` | `fileByKeyDetail` |
 | `GET /files-by-key/download` | `FileUrlResponse` | `fileByKeyDownload` |
@@ -169,9 +198,26 @@ still in step.
 | `GET /files/stats` | `UploadStats` | `fileStats` |
 | `GET /files/stats/activity` | `DailyUploadCount[]` | `uploadActivity` |
 | `GET /health` | `HealthStatus` | `health` |
+| `GET /inspection/stats` | `InspectionStats` | `inspectionStats` |
+| `GET /lines` | `Line[]` | `lines` |
+| `GET /lines/{line_id}` | `LineDetail` | `lineDetail` |
+| `GET /lines/{line_id}/models` | `ModelVersion[]` | `models` |
+| `GET /lines/{line_id}/models/{version}` | `ModelVersionDetail` | `modelDetail` |
+| `GET /lines/{line_id}/parts` | `InspectionPage` | `parts` |
+| `GET /lines/{line_id}/parts/{serial}` | `PartTrace` | `partTrace` |
 | `GET /metrics` | — | _server-only_ |
+| `GET /review-queue` | `ReviewItem[]` | `reviewQueue` |
+| `GET /trace` | `TraceMatch[]` | `traceSearch` |
+| `PATCH /lines/{line_id}` | `Line` | `lineUpdate` |
+| `POST /lines` | `Line` | `lineCreate` |
+| `POST /lines/{line_id}/models` | `ModelVersion` | `modelTrain` |
+| `POST /lines/{line_id}/models/{version}/activate` | `Line` | `modelActivate` |
+| `POST /lines/{line_id}/parts` | `InspectionRecord` | `partCapture` |
+| `POST /lines/{line_id}/parts/{serial}/score` | `InspectionRecord` | `partScore` |
+| `POST /lines/{line_id}/parts/presign` | `PresignCaptureResponse` | `partPresign` |
 | `POST /upload/presign` | `PresignUploadResponse` | `uploadPresign` |
 | `POST /upload/verify` | `FileUploadResponse` | `uploadVerify` |
+| `PUT /lines/{line_id}/parts/{serial}/verdict` | `InspectionRecord` | `partVerdict` |
 <!-- gen:end arch-api-contract -->
 
 ## Canonical Files
@@ -198,16 +244,20 @@ Generated — **never hand-edit**; change the source and re-run the command:
 - `packages/shared/src/generated/api-types.ts` — `pnpm gen:api`
 - `apps/web/src/lib/generated/api-routes.ts` — `pnpm gen:api`
 - `apps/web/src/lib/generated/query-keys.ts` — `pnpm gen:api`
-- The marker-delimited regions of this file, `AGENTS.md`, `README.md` and the 2 `infra/` runbooks — `pnpm gen:docs`
+- The marker-delimited regions of this file, `AGENTS.md`, `README.md` and the 1 `infra/` runbooks — `pnpm gen:docs`
 <!-- gen:end arch-canonical-files -->
 
 ## Core Features
 
 <!-- gen:begin arch-core-features -->
-- [File Upload](docs/features/file-upload.md) — drag-and-drop upload with real-time progress
-- [File Browser](docs/features/file-browser.md) — list, preview, download, delete files
-- [Dashboard](docs/features/dashboard.md) — stats cards, upload chart, recent uploads
-- [Metadata Extraction](docs/features/metadata-extraction.md) — image dimensions, EXIF, PDF info, checksums
+- [Capture and Scoring](docs/features/capture-and-scoring.md) — store each part image in B2 and score it with Anomalib PatchCore
+- [Review Queue](docs/features/review-queue.md) — operators record pass or fail on parts above the threshold
+- [Retraining and Model Versions](docs/features/retraining.md) — train a new model version from adjudicated images read from B2, stored with its metrics
+- [Trace](docs/features/trace.md) — a part serial returns its image, heatmap, score, verdict and model version
+- [Inspection Archive](docs/features/inspection-archive.md) — browse images, heatmaps, scores, labels and models by line and date
+- [Lines](docs/features/lines.md) — create inspection lines and choose the active model version
+- [Dashboard](docs/features/dashboard.md) — parts inspected, review backlog, verdicts and archive growth
+- [Bucket Explorer](docs/features/file-browser.md) — browse, preview and download any object in the bucket
 - [Settings](docs/features/settings.md) — theme plus labelled demo preference fields
 <!-- gen:end arch-core-features -->
 
@@ -217,6 +267,5 @@ Generated — **never hand-edit**; change the source and re-run the command:
 - [docs/SECURITY.md](docs/SECURITY.md) — security principles and implementation
 - [docs/RELIABILITY.md](docs/RELIABILITY.md) — reliability expectations
 - [AGENTS.md](AGENTS.md) — architectural invariants and agent instructions
-- [infra/vercel/README.md](infra/vercel/README.md) — Vercel deployment contract
 - [infra/railway/README.md](infra/railway/README.md) — Railway delivery contract
 <!-- gen:end arch-references -->

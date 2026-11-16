@@ -1,85 +1,51 @@
 {
   "$schema": "../../scripts/gen/sample.schema.json",
   "schema_version": 1,
-  "name": "Vibe Coding Starter Kit",
-  "slug": "vibe-coding-starter-kit",
-  "package_scope": "@vibe-coding-starter-kit",
-  "purpose": "A well-engineered full-stack foundation — dashboard, drag-and-drop upload and a file browser — with Backblaze B2 storage already wired in, so builders skip the boilerplate loop.",
-  "tagline": "Stop wiring boilerplate and start building.",
-  "primary_entity": { "schema": "FileMetadata", "singular": "file", "plural": "files" },
+  "name": "Anomalib Defect Inspection Archive",
+  "slug": "anomalib-defect-inspection-archive",
+  "package_scope": "@anomalib-defect-inspection-archive",
+  "purpose": "An inspection-line archive that stores every part image in Backblaze B2, scores it with Anomalib PatchCore, keeps the heatmap and score with the model version behind it, routes high scores to operator review, and retrains new model versions from adjudicated images read back from B2.",
+  "tagline": "Keep every inspected image, heatmap and model version in Backblaze B2, and trace any part back to the evidence.",
+  "primary_entity": { "schema": "InspectionRecord", "singular": "inspection record", "plural": "inspection records" },
   "features": [
-    {
-      "title": "File Upload",
-      "route": "/upload",
-      "doc": "docs/features/file-upload.md",
-      "summary": "drag-and-drop upload with real-time progress",
-      "workflow_heading": "Upload Files"
-    },
-    {
-      "title": "File Browser",
-      "route": "/files",
-      "doc": "docs/features/file-browser.md",
-      "summary": "list, preview, download, delete files",
-      "workflow_heading": "Browse and Manage Files"
-    },
-    {
-      "title": "Dashboard",
-      "route": "/",
-      "doc": "docs/features/dashboard.md",
-      "summary": "stats cards, upload chart, recent uploads",
-      "workflow_heading": "View Dashboard"
-    },
-    {
-      "title": "Metadata Extraction",
-      "route": null,
-      "doc": "docs/features/metadata-extraction.md",
-      "summary": "image dimensions, EXIF, PDF info, checksums"
-    },
-    {
-      "title": "Settings",
-      "route": "/settings",
-      "doc": "docs/features/settings.md",
-      "summary": "theme plus labelled demo preference fields",
-      "workflow_heading": "Change Preferences"
-    }
+    { "title": "Capture and Scoring", "route": "/upload", "doc": "docs/features/capture-and-scoring.md", "summary": "store each part image in B2 and score it with Anomalib PatchCore", "workflow_heading": "Capture and Score a Part" },
+    { "title": "Review Queue", "route": "/review", "doc": "docs/features/review-queue.md", "summary": "operators record pass or fail on parts above the threshold", "workflow_heading": "Review Flagged Parts" },
+    { "title": "Retraining and Model Versions", "route": "/lines", "doc": "docs/features/retraining.md", "summary": "train a new model version from adjudicated images read from B2, stored with its metrics", "workflow_heading": "Retrain the Model" },
+    { "title": "Trace", "route": "/trace", "doc": "docs/features/trace.md", "summary": "a part serial returns its image, heatmap, score, verdict and model version", "workflow_heading": "Trace a Part" },
+    { "title": "Inspection Archive", "route": "/archive", "doc": "docs/features/inspection-archive.md", "summary": "browse images, heatmaps, scores, labels and models by line and date" },
+    { "title": "Lines", "route": "/lines", "doc": "docs/features/lines.md", "summary": "create inspection lines and choose the active model version", "workflow_heading": "Set Up a Line" },
+    { "title": "Dashboard", "route": "/", "doc": "docs/features/dashboard.md", "summary": "parts inspected, review backlog, verdicts and archive growth", "workflow_heading": "View Dashboard" },
+    { "title": "Bucket Explorer", "route": "/files", "doc": "docs/features/file-browser.md", "summary": "browse, preview and download any object in the bucket", "workflow_heading": "Browse the Bucket" },
+    { "title": "Settings", "route": "/settings", "doc": "docs/features/settings.md", "summary": "theme plus labelled demo preference fields", "workflow_heading": "Change Preferences" }
   ],
   "b2_surface": [
-    { "operation": "put_object", "why": "store an uploaded object" },
-    { "operation": "presigned PUT", "why": "the browser uploads bytes directly to B2, bypassing the Function payload cap" },
-    { "operation": "list_objects_v2", "why": "the shared full-bucket listing behind the file list and the stats cards" },
-    { "operation": "head_object", "why": "cheap per-key metadata, and the /health connectivity probe" },
-    { "operation": "get_object", "why": "re-read bytes to recompute rich metadata on demand" },
-    { "operation": "presigned GET", "why": "download and inline preview URLs" },
-    { "operation": "delete_object", "why": "remove an object" }
+    { "operation": "presigned PUT", "why": "the browser uploads a captured part image straight to its line and date key" },
+    { "operation": "put_object", "why": "write heatmaps, Parquet score files, verdict labels, model checkpoints, metrics and training-set manifests" },
+    { "operation": "head_object", "why": "verify a capture, record ETags in the training-set manifest, and the /health probe" },
+    { "operation": "get_object", "why": "fill the local cache Anomalib trains and scores from, and read records and Parquet files" },
+    { "operation": "list_objects_v2", "why": "lines, parts, score files, labels, model versions, the archive and the full-bucket explorer" },
+    { "operation": "presigned GET", "why": "image, heatmap, Parquet and checkpoint links for review, trace and archive" },
+    { "operation": "delete_object", "why": "the generic Bucket Explorer only; no inspection record is ever deleted" }
   ],
-  "b2_key_prefix": "uploads/",
+  "b2_key_prefix": "lines/",
   "stack": {
     "web": "Next.js 16, React 19, Tailwind v4, shadcn/ui, TanStack Query, Recharts",
-    "api": "FastAPI, Python 3.12+, boto3, Pydantic v2, Pillow, pypdf",
+    "api": "FastAPI, Python 3.12+, boto3, Pydantic v2, pyarrow, Pillow, Anomalib PatchCore (PyTorch, optional ML extra)",
     "storage": "Backblaze B2 (S3-compatible API)",
     "package_manager": "pnpm workspaces"
   },
-  "deployment_targets": ["vercel", "railway"],
+  "deployment_targets": ["railway"],
   "env_vars": [
     { "name": "B2_APPLICATION_KEY_ID", "required": true, "secret": true, "note": "B2 application key ID (**keyID** in the B2 console)" },
-    { "name": "B2_APPLICATION_KEY", "required": true, "secret": true, "note": "B2 application key (**applicationKey**) — shown once at creation" },
+    { "name": "B2_APPLICATION_KEY", "required": true, "secret": true, "note": "B2 application key (**applicationKey**), shown once at creation" },
     { "name": "B2_BUCKET_NAME", "required": true, "secret": false, "note": "bucket unique name (**Bucket Unique Name** in the B2 console)" },
     { "name": "B2_REGION", "required": true, "secret": false, "note": "the region inside the bucket's **Endpoint** (`s3.<region>.backblazeb2.com`); the S3 endpoint is derived from it" },
     { "name": "B2_PUBLIC_URL_BASE", "required": false, "secret": false, "note": "public object base URL, when the bucket is public" },
-    { "name": "NEXT_PUBLIC_API_URL", "required": false, "secret": false, "note": "separate-origin deploys only; Next.js inlines it at build time" }
+    { "name": "NEXT_PUBLIC_API_URL", "required": false, "secret": false, "note": "separate-origin deploys only; Next.js inlines it at build time" },
+    { "name": "INSPECTION_DEVICE", "required": false, "secret": false, "note": "auto (default: CUDA, then Apple MPS, then CPU), cpu, cuda or mps" },
+    { "name": "INSPECTION_CACHE_DIR", "required": false, "secret": false, "note": "local cache Anomalib reads images from, filled from B2 (default services/api/.cache/inspection)" }
   ],
-  "attribution_token": "b2ai-oss-start",
-  "repo": { "org": "backblaze-b2-samples", "name": "vibe-coding-starter-kit" },
-  "screenshots": [
-    {
-      "path": "docs/images/b2-starterkit-dashboard1.png",
-      "alt": "Dashboard view showing stat cards, upload activity chart, and recent uploads table",
-      "caption": "**Dashboard** — stats, upload activity, and recent uploads at a glance:"
-    },
-    {
-      "path": "docs/images/b2-starterkit-fileview2.png",
-      "alt": "File browser view showing a tree of files with hover actions",
-      "caption": "**File browser** — tree view with preview, download, and delete:"
-    }
-  ]
+  "attribution_token": "b2ai-anomalib-inspection-archive",
+  "repo": { "org": "backblaze-b2-samples", "name": "anomalib-b2-inspection-archive" },
+  "screenshots": []
 }

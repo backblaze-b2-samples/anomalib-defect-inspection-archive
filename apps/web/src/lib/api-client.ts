@@ -1,4 +1,25 @@
 import type {
+  ArchiveKind,
+  ArchivePage,
+  CapturePartRequest,
+  CreateLineRequest,
+  EngineStatus,
+  InspectionPage,
+  InspectionRecord,
+  InspectionStats,
+  Line,
+  LineDetail,
+  ModelVersion,
+  ModelVersionDetail,
+  PartStatus,
+  PartTrace,
+  PresignCaptureResponse,
+  ReferenceLabel,
+  ReviewItem,
+  TraceMatch,
+  TrainModelRequest,
+  UpdateLineRequest,
+  VerdictRequest,
   DailyUploadCount,
   DeleteFileResponse,
   FileMetadata,
@@ -8,7 +29,7 @@ import type {
   HealthStatus,
   PresignUploadResponse,
   UploadStats,
-} from "@vibe-coding-starter-kit/shared";
+} from "@anomalib-defect-inspection-archive/shared";
 
 import { API_CLIENT_ROUTES } from "./generated/api-routes";
 
@@ -104,7 +125,7 @@ function storageNetworkError(): ApiError {
   );
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, init);
@@ -306,6 +327,20 @@ function putFileToStorage(
   file: File,
   onProgress?: (percent: number) => void
 ): Promise<void> {
+  return putToStorage(presign.method, presign.url, presign.headers, file, onProgress);
+}
+
+/**
+ * The XHR transport shared by Upload and Capture: PUT `body` to a presigned
+ * B2 URL with the exact signed headers, reporting progress.
+ */
+export function putToStorage(
+  method: string,
+  url: string,
+  headers: Record<string, string>,
+  body: Blob,
+  onProgress?: (percent: number) => void
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
 
@@ -332,10 +367,205 @@ function putFileToStorage(
       reject(new ApiError("Upload aborted", 0)),
     );
 
-    xhr.open(presign.method.toUpperCase(), presign.url);
-    for (const [name, value] of Object.entries(presign.headers)) {
+    xhr.open(method.toUpperCase(), url);
+    for (const [name, value] of Object.entries(headers)) {
       xhr.setRequestHeader(name, value);
     }
-    xhr.send(file);
+    xhr.send(body);
   });
+}
+
+// --- Inspection archive -----------------------------------------------------
+
+/** Fill `{name}` placeholders in a registry path, URL-encoding each value. */
+function routePath(path: string, params: Record<string, string>): string {
+  return path.replace(/\{(\w+)\}/g, (_match, name: string) => {
+    const value = params[name];
+    if (value === undefined || value === "") {
+      throw new ApiError(`Missing route parameter: ${name}`, 400);
+    }
+    return encodeURIComponent(value);
+  });
+}
+
+function queryString(params: Record<string, string | number | undefined | null>): string {
+  const search = new URLSearchParams();
+  for (const [name, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") {
+      search.set(name, String(value));
+    }
+  }
+  const text = search.toString();
+  return text ? `?${text}` : "";
+}
+
+function sendJson<T>(
+  route: { method: string; path: string },
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  return apiFetch<T>(path, {
+    method: route.method.toUpperCase(),
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+export function getLines() {
+  return apiFetch<Line[]>(API_CLIENT_ROUTES.lines.path);
+}
+
+export function getLineDetail(lineId: string) {
+  return apiFetch<LineDetail>(
+    routePath(API_CLIENT_ROUTES.lineDetail.path, { line_id: lineId }),
+  );
+}
+
+export function createLine(body: CreateLineRequest) {
+  return sendJson<Line>(API_CLIENT_ROUTES.lineCreate, API_CLIENT_ROUTES.lineCreate.path, body);
+}
+
+export function updateLine(lineId: string, body: UpdateLineRequest) {
+  return sendJson<Line>(
+    API_CLIENT_ROUTES.lineUpdate,
+    routePath(API_CLIENT_ROUTES.lineUpdate.path, { line_id: lineId }),
+    body,
+  );
+}
+
+export interface PartsQuery {
+  date?: string;
+  status?: PartStatus;
+  limit?: number;
+  cursor?: string;
+}
+
+export function getParts(lineId: string, query: PartsQuery = {}) {
+  return apiFetch<InspectionPage>(
+    routePath(API_CLIENT_ROUTES.parts.path, { line_id: lineId }) +
+      queryString({ ...query }),
+  );
+}
+
+export function getPartTrace(lineId: string, serial: string) {
+  return apiFetch<PartTrace>(
+    routePath(API_CLIENT_ROUTES.partTrace.path, { line_id: lineId, serial }),
+  );
+}
+
+export interface CaptureInput {
+  lineId: string;
+  serial: string;
+  file: File;
+  reference?: ReferenceLabel | null;
+  scoreNow?: boolean;
+}
+
+/**
+ * Capture a part in three steps, mirroring Upload: presign (the API checks the
+ * serial and signs a PUT to `lines/<line>/<date>/images/<serial>.png`), a
+ * direct browser->B2 PUT, then register (the API validates the image and
+ * scores it with the line's active model).
+ */
+export async function capturePart(
+  input: CaptureInput,
+  onProgress?: (percent: number) => void,
+): Promise<InspectionRecord> {
+  const presign = await sendJson<PresignCaptureResponse>(
+    API_CLIENT_ROUTES.partPresign,
+    routePath(API_CLIENT_ROUTES.partPresign.path, { line_id: input.lineId }),
+    { serial: input.serial, content_type: input.file.type, size_bytes: input.file.size },
+  );
+  await putToStorage("PUT", presign.upload_url, presign.headers, input.file, onProgress);
+  const body: CapturePartRequest = {
+    serial: input.serial,
+    image_key: presign.image_key,
+    score_now: input.scoreNow ?? true,
+    reference: input.reference ?? null,
+  };
+  return sendJson<InspectionRecord>(
+    API_CLIENT_ROUTES.partCapture,
+    routePath(API_CLIENT_ROUTES.partCapture.path, { line_id: input.lineId }),
+    body,
+  );
+}
+
+export function scorePart(lineId: string, serial: string, modelVersion?: string | null) {
+  return sendJson<InspectionRecord>(
+    API_CLIENT_ROUTES.partScore,
+    routePath(API_CLIENT_ROUTES.partScore.path, { line_id: lineId, serial }),
+    { model_version: modelVersion ?? null },
+  );
+}
+
+export function recordVerdict(lineId: string, serial: string, body: VerdictRequest) {
+  return sendJson<InspectionRecord>(
+    API_CLIENT_ROUTES.partVerdict,
+    routePath(API_CLIENT_ROUTES.partVerdict.path, { line_id: lineId, serial }),
+    body,
+  );
+}
+
+export function getReviewQueue(lineId?: string, limit = 100) {
+  return apiFetch<ReviewItem[]>(
+    API_CLIENT_ROUTES.reviewQueue.path + queryString({ line_id: lineId, limit }),
+  );
+}
+
+export function searchTrace(serial: string, lineId?: string) {
+  return apiFetch<TraceMatch[]>(
+    API_CLIENT_ROUTES.traceSearch.path + queryString({ serial, line_id: lineId }),
+  );
+}
+
+export function getModels(lineId: string) {
+  return apiFetch<ModelVersion[]>(routePath(API_CLIENT_ROUTES.models.path, { line_id: lineId }));
+}
+
+export function getModelDetail(lineId: string, version: string) {
+  return apiFetch<ModelVersionDetail>(
+    routePath(API_CLIENT_ROUTES.modelDetail.path, { line_id: lineId, version }),
+  );
+}
+
+export function trainModel(lineId: string, body: TrainModelRequest) {
+  return sendJson<ModelVersion>(
+    API_CLIENT_ROUTES.modelTrain,
+    routePath(API_CLIENT_ROUTES.modelTrain.path, { line_id: lineId }),
+    body,
+  );
+}
+
+export function activateModel(lineId: string, version: string) {
+  return sendJson<Line>(
+    API_CLIENT_ROUTES.modelActivate,
+    routePath(API_CLIENT_ROUTES.modelActivate.path, { line_id: lineId, version }),
+  );
+}
+
+export interface ArchiveQuery {
+  lineId?: string;
+  date?: string;
+  kind?: ArchiveKind;
+  cursor?: string;
+}
+
+export function getArchive(query: ArchiveQuery) {
+  return apiFetch<ArchivePage>(
+    API_CLIENT_ROUTES.archive.path +
+      queryString({
+        line_id: query.lineId,
+        date: query.date,
+        kind: query.kind,
+        cursor: query.cursor,
+      }),
+  );
+}
+
+export function getInspectionStats() {
+  return apiFetch<InspectionStats>(API_CLIENT_ROUTES.inspectionStats.path);
+}
+
+export function getEngine() {
+  return apiFetch<EngineStatus>(API_CLIENT_ROUTES.engine.path);
 }

@@ -1,18 +1,27 @@
-<!-- last_verified: 2026-07-30 -->
+<!-- last_verified: 2026-11-16 -->
 # Security
 
-Security principles and implementation for the vibe-coding-starter-kit.
+Security principles and implementation for the anomalib-defect-inspection-archive.
 
 ## Trust Boundaries
 
-- **Frontend -> API**: CORS-restricted to configured origins, scoped to `GET/POST/DELETE/OPTIONS`. `allow_credentials` is `False` (no cookie/session auth today); enable it only alongside real auth and a tightened origin allowlist.
+- **Frontend -> API**: CORS-restricted to configured origins, scoped to `GET/POST/PUT/PATCH/DELETE/OPTIONS`. `allow_credentials` is `False` (no cookie/session auth today); enable it only alongside real auth and a tightened origin allowlist.
 - **API -> B2**: Authenticated via `B2_APPLICATION_KEY_ID` + `B2_APPLICATION_KEY`, signature v4
-- **Client -> B2**: Presigned URLs for download (10-min expiry, `Content-Disposition: attachment`) and for direct upload (short-lived PUT with the size and content-type signed in, so B2 rejects a mismatched body)
+- **Client -> B2**: Presigned URLs for download (10-min expiry, `Content-Disposition: attachment`), for viewing inspection evidence (images, heatmaps, Parquet, checkpoints: inline, `PRESIGN_VIEW_EXPIRY_SECONDS`, 15 minutes by default) and for direct upload (short-lived PUT, 15 minutes, with the key, size and content-type signed in, so B2 rejects a mismatched body)
+- **API -> Hugging Face Hub**: the backbone weights (`timm/wide_resnet50_2.tv2_in1k`, BSD-3-Clause) download anonymously on first use; no token is configured or sent
 
 ## Authentication & Multi-Tenancy
 
 - **No auth by design.** The file API (`/files`, `/files-by-key`, `/upload/presign`, `/upload/verify`) is unauthenticated and bucket-wide — any client can list, download, delete, and (via presign) upload objects. Acceptable for a single-tenant demo; the rate limiter guards the open endpoints.
 - **Adding auth to a clone does not close this automatically.** A login screen alone leaves an open, cross-user file API. You must both (1) require auth on every file route and (2) scope listings and reads to the caller's own prefixes — skipping either lets one signed-in user read and delete another's files. See the co-located notes in `runtime/files.py` and `service/files.py`.
+
+## Inspection Records
+
+- **No inspection delete path.** No `/lines*`, `/review-queue`, `/trace`, `/archive` or `/inspection/*` route deletes anything (`tests/test_inspection_api.py::test_no_inspection_route_deletes_anything`). Images are never overwritten after capture, score rows are new Parquet files, verdicts are new label objects, heatmaps are keyed by model version. The only delete in the app is the kit's generic Bucket Explorer; deleting under `lines/` there breaks traces, so restrict it (or set `ALLOWED_KEY_PREFIX`) before exposing the app.
+- **Key injection.** Line ids (`^[a-z0-9][a-z0-9-]{1,40}$`), serials (`^[A-Za-z0-9._-]{1,64}$`, never `.` or `..`), model versions (`v<N>`) and dates (`YYYY-MM-DD`) are validated in the Pydantic models and again in `service/keys.py`, the only place keys under `lines/` are built, so no input can add a `/` or `..` to a key (`tests/test_inspection_keys.py`).
+- **Capture keys are minted by the API.** The presign returns `lines/<line>/<today>/images/<serial>.png`; registering a part requires exactly that key shape for the same line and serial and today's or yesterday's date. The API reads the bytes back and refuses anything that is not a decodable PNG or JPEG (magic bytes plus a full decode, 40-megapixel cap, 20 MB cap).
+- **Checkpoints are loaded with `torch.load(weights_only=True)`** and must carry the expected format tag and backbone weights tag, so a tampered object cannot execute pickled code.
+- **Unauthenticated, like the rest of the API.** Anyone who can reach the API can create lines, capture parts, record verdicts and start training (bounded by the write rate limit and the single training queue). Put the app behind your own auth before exposing it.
 
 ## Upload Validation
 
@@ -29,7 +38,7 @@ Uploads go directly from the browser to B2, so the API validates at two points:
 
 ## Rate Limiting
 
-- Per-IP fixed-window limiter (`app/runtime/ratelimit.py`), configurable via `RATE_LIMIT_PER_MINUTE` (reads) and `RATE_LIMIT_WRITE_PER_MINUTE` (uploads/deletes/downloads). Guards against DoS and Backblaze transaction/egress cost amplification on the unauthenticated endpoints.
+- Per-IP fixed-window limiter (`app/runtime/ratelimit.py`), configurable via `RATE_LIMIT_PER_MINUTE` (reads) and `RATE_LIMIT_WRITE_PER_MINUTE` (every POST/PUT/PATCH/DELETE, plus downloads: captures, verdicts, scoring and training count here). Guards against DoS and Backblaze transaction/egress cost amplification on the unauthenticated endpoints.
 - In-process, per replica. Horizontal scaling needs a shared store (e.g. Redis) — see [RELIABILITY.md](RELIABILITY.md).
 
 ## File Key Validation
@@ -75,9 +84,8 @@ Uploads go directly from the browser to B2, so the API validates at two points:
 
 ## Deployment Configuration
 
-The [Railway](../infra/railway/README.md) and
-[Vercel](../infra/vercel/README.md) delivery contracts are the canonical
-locations for production variable classification and environment access rules.
+The [Railway](../infra/railway/README.md) delivery contract is the canonical
+location for production variable classification and environment access rules.
 In particular, `B2_APPLICATION_KEY_ID` and `B2_APPLICATION_KEY` are secrets; the web
 service's `NEXT_PUBLIC_API_URL` is intentionally public build-time
 configuration and must never contain a credential. Keep production variables,

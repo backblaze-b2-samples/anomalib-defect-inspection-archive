@@ -2,20 +2,26 @@
 
 ## Users
 
-AI coding agents and "vibe coders" (developers who lean on AI to move fast) who clone
-this kit as the foundation for a new full-stack app. Their context: they want to skip
-the boilerplate loop (dashboard, upload, file browser, cloud storage wiring) and go
-straight to building their app's unique features. They read the repo, keep the shared
-scaffolding, and rebrand + rewrite the dashboard for their own use case.
+ML engineers and manufacturing-software engineers who run (or are building)
+camera-based part inspection, and the AI coding agents they work with. Their context:
+an anomaly model flags parts, operators decide, and months later someone asks why a
+part shipped. They need every image, score, heatmap, verdict and model version kept
+together and findable by part serial, on storage that grows with the line.
 
 ## Product Purpose
 
-An engineering-grade full-stack starter kit (Next.js 16 + React 19 + Tailwind v4 +
-shadcn/ui frontend, FastAPI backend) with Backblaze B2 cloud storage integrated out of
-the box. It ships a dashboard, drag-and-drop upload, and a file browser so builders
-start from a working app, not a blank page. Success = a builder can clone it, run it,
-rebrand it via one config file, and trust every screen enough to build on top without
-first fixing it.
+A visual inspection archive built on Anomalib PatchCore and Backblaze B2. Each part
+image lands in B2 under its line and date; PatchCore scores it locally and writes a
+heatmap and a score row with the model version and threshold; parts above the
+threshold go to an operator review queue; adjudicated images become the next training
+set, and each new model version is trained from images read back from B2 and stored
+beside its metrics and a manifest of exactly which images it saw. Success = any part
+serial returns its full, explainable record, and the archive needs no second API key
+and no GPU to run.
+
+Out of scope: camera or PLC integration, line-rate or throughput claims, other anomaly
+libraries, MVTec datasets, deleting inspection records, and claims of compliance with
+any specific quality standard.
 
 ## Maturity and Support Boundary
 
@@ -29,11 +35,10 @@ and no SLA is provided for the repository software.
 
 ## Brand Personality
 
-Confident, precise, quietly professional. Voice is direct and free of hype ("Stop
-wiring boilerplate and start building"). The interface should feel like a modern
-developer tool — considered, calm, trustworthy — not a marketing showpiece. It is a
-**neutral foundation** that others rebrand: the design carries craft through restraint,
-not through a strong opinionated identity of its own.
+Confident, precise, quietly professional. Voice is direct and free of hype; numbers
+are shown in the units they were computed in (raw PatchCore scores beside their
+threshold). The interface should feel like a modern inspection tool: calm, exact,
+trustworthy. Evidence (image, heatmap, score, verdict, model) is always one click away.
 
 ## Anti-references
 
@@ -49,8 +54,8 @@ not through a strong opinionated identity of its own.
 
 ## Design Principles
 
-- **Practice what you preach.** The kit itself must model the engineering quality it
-  asks agents to produce. Slop here propagates into every project built on it.
+- **Evidence over summaries.** Every number links back to the image, heatmap and model
+  version that produced it; nothing that a trace depends on is overwritten or deleted.
 - **Neutral foundation, easy to rebrand.** Identity lives in tokens (`globals.css`) and
   one config file. Screens are built from the shared UI kit so a rebrand is a token
   swap, not a rewrite.

@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # app-config.ts, so this is the backend's declaration of the same slug:
     # keep it equal to the package name, and derive identifiers from it rather
     # than writing a second name a rename sweep has to know about.
-    app_slug: str = "vibe-coding-starter-kit"
+    app_slug: str = "anomalib-defect-inspection-archive"
 
     api_port: int = 8000
     # Interactive API docs (/docs, /redoc, /openapi.json). On by default for
@@ -100,6 +100,20 @@ class Settings(BaseSettings):
     # on every download — but a single added `--reload-include` would turn a
     # normal user action into an API restart that drops in-flight requests.
     download_count_file: str = ".data/download_count.json"
+
+    # --- Inspection (Anomalib PatchCore) ---
+    # Device for training and scoring: "auto" picks CUDA, then Apple MPS, then
+    # CPU at runtime; "cpu", "cuda" or "mps" force one. A GPU is never required.
+    inspection_device: str = "auto"
+    # Local cache Anomalib reads images from. It is filled ONLY from B2 through
+    # the app's boto3 client (repo/local_cache.py), so every byte read carries
+    # the custom user agent. Disposable: deleting it changes nothing in B2.
+    # Relative paths resolve against the repo root.
+    inspection_cache_dir: str = "services/api/.cache/inspection"
+    # Largest part image Capture accepts (bytes).
+    capture_max_bytes: int = 20 * 1024 * 1024
+    # Lifetime of presigned GET links shown on review, trace and archive pages.
+    presign_view_expiry_seconds: int = 900
 
     # `extra: ignore` because the repo-root env file is shared: it also carries
     # frontend and script variables, and — after the rename to the standard B2

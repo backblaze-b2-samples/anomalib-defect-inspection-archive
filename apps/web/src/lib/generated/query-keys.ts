@@ -22,10 +22,21 @@
  */
 export const qk = {
   all: ["b2"] as const,
+  archive: (line_id?: string, date?: string, kind?: string, cursor?: string) => [...qk.all, "lines", "archive", line_id, date, kind ?? "images", cursor] as const,
+  engine: () => [...qk.all, "engine"] as const,
   files: (prefix?: string, limit?: number) => [...qk.all, "files", prefix ?? "", limit ?? 100] as const,
   detail: (key: string) => [...qk.all, "detail", key] as const,
   preview: (key: string) => [...qk.all, "preview", key] as const,
   stats: () => [...qk.all, "stats"] as const,
   uploadActivity: (days?: number) => [...qk.all, "stats", "activity", days ?? 7] as const,
   health: () => [...qk.all, "health"] as const,
+  inspectionStats: () => [...qk.all, "lines", "stats"] as const,
+  lines: () => [...qk.all, "lines"] as const,
+  lineDetail: () => [...qk.all, "lines", "detail"] as const,
+  models: () => [...qk.all, "lines", "models"] as const,
+  modelDetail: () => [...qk.all, "lines", "model"] as const,
+  parts: (date?: string, status?: string, limit?: number, cursor?: string) => [...qk.all, "lines", "parts", date, status, limit ?? 50, cursor] as const,
+  partTrace: () => [...qk.all, "lines", "trace"] as const,
+  reviewQueue: (line_id?: string, limit?: number) => [...qk.all, "lines", "review", line_id, limit ?? 100] as const,
+  traceSearch: (serial: string, line_id?: string) => [...qk.all, "lines", "search", serial, line_id] as const,
 };

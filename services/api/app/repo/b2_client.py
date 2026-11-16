@@ -38,8 +38,7 @@ def _public_url(key: str) -> str | None:
     return f"{settings.b2_public_url_base}/{quote(key, safe='/')}"
 
 
-@functools.lru_cache(maxsize=1)
-def get_s3_client():
+def _build_client(read_timeout: int, attempts: int):
     return boto3.client(
         "s3",
         endpoint_url=settings.endpoint_url,
@@ -48,12 +47,32 @@ def get_s3_client():
         aws_secret_access_key=settings.b2_application_key,
         config=Config(
             connect_timeout=5,
-            read_timeout=30,
-            retries={"mode": "standard", "total_max_attempts": 3},
+            read_timeout=read_timeout,
+            retries={"mode": "standard", "total_max_attempts": attempts},
             signature_version="s3v4",
-            user_agent_extra="b2ai-oss-start",
+            user_agent_extra="b2ai-anomalib-inspection-archive",
+            # B2 rejects the newer default CRC checksum headers on some calls;
+            # send and verify checksums only where the S3 API requires them.
+            request_checksum_calculation="when_required",
+            response_checksum_validation="when_required",
         ),
     )
+
+
+@functools.lru_cache(maxsize=1)
+def get_s3_client():
+    return _build_client(read_timeout=30, attempts=3)
+
+
+@functools.lru_cache(maxsize=1)
+def get_s3_bulk_client():
+    """Same identity and settings, with patience for multi-megabyte bodies.
+
+    Model checkpoints are several MB; on a slow uplink (a factory network) a
+    single PUT can outlast the 30 s read timeout the interactive client keeps
+    for /health and listings. Used only for checkpoint transfers.
+    """
+    return _build_client(read_timeout=300, attempts=5)
 
 
 # Cache the B2 connectivity result briefly so uptime monitors polling /health

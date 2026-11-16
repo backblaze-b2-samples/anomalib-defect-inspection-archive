@@ -8,6 +8,27 @@ import {
 } from "@tanstack/react-query";
 import {
   ApiError,
+  activateModel,
+  capturePart,
+  createLine,
+  getArchive,
+  getEngine,
+  getInspectionStats,
+  getLineDetail,
+  getLines,
+  getModelDetail,
+  getModels,
+  getPartTrace,
+  getParts,
+  getReviewQueue,
+  recordVerdict,
+  scorePart,
+  searchTrace,
+  trainModel,
+  updateLine,
+  type ArchiveQuery,
+  type CaptureInput,
+  type PartsQuery,
   deleteFile,
   getDownloadUrl,
   getFileDetail,
@@ -18,10 +39,14 @@ import {
   getUploadActivity,
 } from "@/lib/api-client";
 import type {
+  CreateLineRequest,
+  TrainModelRequest,
+  UpdateLineRequest,
+  VerdictRequest,
   FileMetadata,
   FileMetadataDetail,
   FileUrlResponse,
-} from "@vibe-coding-starter-kit/shared";
+} from "@anomalib-defect-inspection-archive/shared";
 import { qk } from "@/lib/generated/query-keys";
 
 // Query keys are GENERATED from the API contract (`pnpm gen:api`) and their
@@ -166,5 +191,166 @@ export function useDeleteFile() {
       dropDeletedFileFromCache(qc, fileKey);
       qc.invalidateQueries({ queryKey: qk.all });
     },
+  });
+}
+
+// --- Inspection archive -----------------------------------------------------
+//
+// Every inspection key sits under qk.lines(), so one invalidation of that
+// parent after a write (capture, verdict, score, train, activate) refreshes
+// every line, part, review, archive and dashboard view. Path parameters are
+// appended to the generated key here, because the generated factory only
+// knows query parameters.
+
+export function useLines() {
+  return useQuery({ queryKey: qk.lines(), queryFn: getLines });
+}
+
+export function useLineDetail(lineId: string | undefined) {
+  return useQuery({
+    queryKey: [...qk.lineDetail(), lineId ?? ""],
+    queryFn: () => getLineDetail(lineId as string),
+    enabled: !!lineId,
+  });
+}
+
+export function useParts(lineId: string | undefined, query: PartsQuery = {}) {
+  return useQuery({
+    queryKey: [...qk.parts(query.date, query.status, query.limit, query.cursor), lineId ?? ""],
+    queryFn: () => getParts(lineId as string, query),
+    enabled: !!lineId,
+  });
+}
+
+export function usePartTrace(lineId: string | undefined, serial: string | undefined) {
+  return useQuery({
+    queryKey: [...qk.partTrace(), lineId ?? "", serial ?? ""],
+    queryFn: () => getPartTrace(lineId as string, serial as string),
+    enabled: !!lineId && !!serial,
+  });
+}
+
+export function useReviewQueue(lineId?: string) {
+  return useQuery({
+    queryKey: qk.reviewQueue(lineId),
+    queryFn: () => getReviewQueue(lineId),
+  });
+}
+
+export function useTraceSearch(serial: string, lineId?: string) {
+  return useQuery({
+    queryKey: qk.traceSearch(serial, lineId),
+    queryFn: () => searchTrace(serial, lineId),
+    enabled: serial.trim().length > 0,
+  });
+}
+
+/** Model versions; polls every 5s while any version is queued or training. */
+export function useModels(lineId: string | undefined) {
+  return useQuery({
+    queryKey: [...qk.models(), lineId ?? ""],
+    queryFn: () => getModels(lineId as string),
+    enabled: !!lineId,
+    refetchInterval: (query) =>
+      query.state.data?.some((m) => m.status === "queued" || m.status === "training")
+        ? 5_000
+        : false,
+  });
+}
+
+export function useModelDetail(lineId: string | undefined, version: string | undefined) {
+  return useQuery({
+    queryKey: [...qk.modelDetail(), lineId ?? "", version ?? ""],
+    queryFn: () => getModelDetail(lineId as string, version as string),
+    enabled: !!lineId && !!version,
+    refetchInterval: (query) =>
+      query.state.data?.status === "queued" || query.state.data?.status === "training"
+        ? 5_000
+        : false,
+  });
+}
+
+export function useArchive(query: ArchiveQuery) {
+  return useQuery({
+    queryKey: qk.archive(query.lineId, query.date, query.kind, query.cursor),
+    queryFn: () => getArchive(query),
+  });
+}
+
+export function useInspectionStats() {
+  return useQuery({ queryKey: qk.inspectionStats(), queryFn: getInspectionStats });
+}
+
+export function useEngine() {
+  return useQuery({ queryKey: qk.engine(), queryFn: getEngine, staleTime: 60_000 });
+}
+
+function useInvalidateInspection() {
+  const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: qk.lines() });
+    // Captures also add objects the full-bucket explorer lists.
+    qc.invalidateQueries({ queryKey: [...qk.all, "files"] });
+    qc.invalidateQueries({ queryKey: qk.stats() });
+  };
+}
+
+export function useCreateLine() {
+  const invalidate = useInvalidateInspection();
+  return useMutation({
+    mutationFn: (body: CreateLineRequest) => createLine(body),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateLine(lineId: string) {
+  const invalidate = useInvalidateInspection();
+  return useMutation({
+    mutationFn: (body: UpdateLineRequest) => updateLine(lineId, body),
+    onSuccess: invalidate,
+  });
+}
+
+export function useCapturePart(onProgress?: (percent: number) => void) {
+  const invalidate = useInvalidateInspection();
+  return useMutation<Awaited<ReturnType<typeof capturePart>>, ApiError, CaptureInput>({
+    mutationFn: (input) => capturePart(input, onProgress),
+    onSuccess: invalidate,
+  });
+}
+
+export function useScorePart(lineId: string) {
+  const invalidate = useInvalidateInspection();
+  return useMutation<
+    Awaited<ReturnType<typeof scorePart>>,
+    ApiError,
+    { serial: string; modelVersion?: string | null }
+  >({
+    mutationFn: ({ serial, modelVersion }) => scorePart(lineId, serial, modelVersion),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRecordVerdict(lineId: string, serial: string) {
+  const invalidate = useInvalidateInspection();
+  return useMutation<Awaited<ReturnType<typeof recordVerdict>>, ApiError, VerdictRequest>({
+    mutationFn: (body) => recordVerdict(lineId, serial, body),
+    onSuccess: invalidate,
+  });
+}
+
+export function useTrainModel(lineId: string) {
+  const invalidate = useInvalidateInspection();
+  return useMutation<Awaited<ReturnType<typeof trainModel>>, ApiError, TrainModelRequest>({
+    mutationFn: (body) => trainModel(lineId, body),
+    onSuccess: invalidate,
+  });
+}
+
+export function useActivateModel(lineId: string) {
+  const invalidate = useInvalidateInspection();
+  return useMutation<Awaited<ReturnType<typeof activateModel>>, ApiError, string>({
+    mutationFn: (version) => activateModel(lineId, version),
+    onSuccess: invalidate,
   });
 }
