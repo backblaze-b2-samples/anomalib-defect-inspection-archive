@@ -1,4 +1,4 @@
-// Single source of truth for app identity. Rename here to rebrand a clone of this starter.
+// Single source of truth for app identity. Rename here to rebrand this app.
 export const APP_NAME = "Anomalib Defect Inspection Archive";
 export const APP_DESCRIPTION =
   "Visual inspection archive with Anomalib and Backblaze B2";

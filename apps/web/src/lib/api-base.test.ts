@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 // API_BASE is resolved once at module load from the environment, so each case
 // re-imports the module under a fresh env. The key case is the same-origin
-// "/api" default: it lets the single-project Vercel deploy (web + API in one
-// `services` project) work with no NEXT_PUBLIC_API_URL set, instead of silently
+// "/api" default: it lets a single-origin deploy (web + API behind one
+// origin) work with no NEXT_PUBLIC_API_URL set, instead of silently
 // falling back to localhost and breaking the dashboard.
 describe("API_BASE resolution", () => {
   afterEach(() => {

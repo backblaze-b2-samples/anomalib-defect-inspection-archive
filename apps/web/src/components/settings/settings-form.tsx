@@ -114,11 +114,11 @@ export function SettingsForm() {
           <AlertTitle>Most of this page is a demonstration</AlertTitle>
           <AlertDescription>
             <span>
-              It shows what a settings page can look like when you build on this
-              starter kit. Only <strong>Theme</strong> is wired up for real. The
+              It shows what settings for this inspection archive could look
+              like. Only <strong>Theme</strong> is wired up for real. The
               Profile fields and the notification, quota, and default-view
               preferences are illustrative placeholders — they save to this
-              browser but drive no behaviour, because the kit ships no account
+              browser but drive no behaviour, because this app has no account
               system, mailer, quota service, or activity log. Point them at your
               own API when you add one. See{" "}
               <code>docs/features/settings.md</code>.

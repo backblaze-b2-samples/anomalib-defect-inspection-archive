@@ -3967,7 +3967,7 @@
     },
     "/upload/presign": {
       "post": {
-        "description": "Validate a declared upload and hand back a presigned PUT.\n\nThe browser uploads the bytes straight to B2 with the returned URL, so they\nnever traverse this Function \u2014 that is what lifts Vercel's ~4.5 MB payload\nceiling. Size and content-type are signed into the URL (see the service).",
+        "description": "Validate a declared upload and hand back a presigned PUT.\n\nThe browser uploads the bytes straight to B2 with the returned URL, so they\nnever traverse this API, so upload size is not bounded by its request-body\nlimits. Size and content-type are signed into the URL (see the service).",
         "operationId": "presign_upload_upload_presign_post",
         "requestBody": {
           "content": {

@@ -3,14 +3,14 @@
 The direct-to-B2 upload flow has the browser PUT bytes straight to the bucket,
 so the bucket must allow your web origin (method PUT + the `content-type`
 header). Local dev origins are typically already allowed; run this once per
-deployed origin (your Vercel/production URL).
+deployed origin (your production URL).
 
 Usage:
     # dry run (default): print current + proposed CORS, write nothing
-    python services/api/scripts/setup_b2_cors.py --origin https://your-app.vercel.app
+    python services/api/scripts/setup_b2_cors.py --origin https://your-app.example.com
 
     # actually write it
-    python services/api/scripts/setup_b2_cors.py --origin https://your-app.vercel.app --apply
+    python services/api/scripts/setup_b2_cors.py --origin https://your-app.example.com --apply
 
 Reads B2 credentials from the repo-root .env exactly like the app. It MERGES:
 existing CORS rules are preserved and one rule (ID `<app slug>-direct-upload`) is
@@ -84,7 +84,7 @@ def main() -> int:
         action="append",
         required=True,
         metavar="URL",
-        help="Web origin to allow, e.g. https://your-app.vercel.app (repeatable)",
+        help="Web origin to allow, e.g. https://your-app.example.com (repeatable)",
     )
     parser.add_argument(
         "--apply",

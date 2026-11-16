@@ -22,8 +22,8 @@ async def presign_upload(req: PresignUploadRequest):
     """Validate a declared upload and hand back a presigned PUT.
 
     The browser uploads the bytes straight to B2 with the returned URL, so they
-    never traverse this Function — that is what lifts Vercel's ~4.5 MB payload
-    ceiling. Size and content-type are signed into the URL (see the service).
+    never traverse this API, so upload size is not bounded by its request-body
+    limits. Size and content-type are signed into the URL (see the service).
     """
     try:
         # generate_presigned_url does blocking (botocore) work; keep it off the

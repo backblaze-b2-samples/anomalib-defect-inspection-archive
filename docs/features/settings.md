@@ -2,15 +2,15 @@
 # Feature: Settings
 
 ## Purpose
-Show what a settings page can look like when you build on this starter kit — a
-profile, notification/quota preferences, and a default view — while being
-explicit that only the preferences the kit can actually honour do anything. Today
+Give the inspection archive a settings page (a profile, notification/quota
+preferences, and a default view) while being explicit that only the preferences
+the app can actually honour do anything. Today
 that is Theme; the rest is a labelled demonstration.
 
 ## Used By
 - UI: `/settings` page (`SettingsForm`, `DangerZone`)
 - API: none. There is no account system
-- Storage: `next-themes`' own key for Theme; `localStorage` (`vibe-demo-preferences`) for the demo fields. The app has no server-side preferences store
+- Storage: `next-themes`' own key for Theme; `localStorage` (`anomalib-defect-inspection-archive-demo-preferences`, i.e. `${APP_SLUG}-demo-preferences`) for the demo fields. The app has no server-side preferences store
 
 ## Core Functions
 - `apps/web/src/lib/theme-preference.ts` — `THEME_OPTIONS`, `DEFAULT_THEME`, `isThemeOption()`, `normalizeTheme()`; the one real preference

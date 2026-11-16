@@ -45,7 +45,7 @@ import { API_CLIENT_ROUTES } from "./generated/api-routes";
 // `scripts/gen/api-gen.config.json` (`escapeHatch`).
 export { API_CLIENT_ROUTES };
 
-// Single-origin deploys (Vercel `services`: one project serving web + API) put
+// Single-origin deploys (a reverse proxy serving web + API together) put
 // the API under /api on the same origin, so no NEXT_PUBLIC_API_URL is needed —
 // a production build with it unset defaults to the relative "/api". An explicit
 // NEXT_PUBLIC_API_URL still wins (two-project / separate-origin deploys). Local
@@ -283,7 +283,7 @@ export async function deleteFile(key: string) {
  * Upload a file directly to B2 in three steps: presign (the API validates the
  * declared file and signs a short-lived PUT), a direct browser→B2 PUT, then
  * verify (the API inspects the stored object). The bytes never pass through the
- * API, which is what removes Vercel's ~4.5 MB Function payload ceiling.
+ * API, so upload size is not bounded by the API's request-body limits.
  *
  * The `(file, onProgress) => FileUploadResponse` signature is unchanged, so the
  * upload queue and progress UI don't care that the transport changed. Progress
