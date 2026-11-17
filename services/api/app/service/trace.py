@@ -1,5 +1,6 @@
 """Trace: from a part serial back to all of its evidence."""
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 
 from app.repo import b2_store
@@ -64,9 +65,17 @@ def search(serial: str, line_id: str | None = None) -> list[TraceMatch]:
     line_ids = [lines.get_line(line_id).line_id] if line_id else [
         line.line_id for line in lines.list_lines()
     ]
+    # Probe every line's part index in parallel: a miss used to cost one
+    # sequential listing per line before "No part found" could show.
+    with ThreadPoolExecutor(max_workers=max(1, min(8, len(line_ids)))) as pool:
+        probes = list(
+            pool.map(
+                lambda lid: b2_store.list_page(keys.parts_prefix(lid) + query, max_keys=MAX_MATCHES)[0],
+                line_ids,
+            )
+        )
     matches: list[TraceMatch] = []
-    for lid in line_ids:
-        found, _, _ = b2_store.list_page(keys.parts_prefix(lid) + query, max_keys=MAX_MATCHES)
+    for lid, found in zip(line_ids, probes, strict=True):
         if not found:
             continue
         st = state.load_line_state(lid)

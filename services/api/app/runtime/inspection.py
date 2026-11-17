@@ -7,7 +7,7 @@
 from fastapi import APIRouter, Query
 
 from app.runtime.errors import call
-from app.service import inspection, review, trace
+from app.service import inspection, review, score_jobs, trace
 from app.types.inspection import (
     CapturePartRequest,
     InspectionPage,
@@ -21,6 +21,7 @@ from app.types.inspection import (
     TraceMatch,
     VerdictRequest,
 )
+from app.types.lines import ScoreJob
 
 router = APIRouter()
 
@@ -59,6 +60,18 @@ def get_part(line_id: str, serial: str):
 def score_part(line_id: str, serial: str, req: ScorePartRequest):
     """Score or re-score a part. 503 without the ML extra; 409 without a ready model."""
     return call(inspection.score_part, line_id, serial, req.model_version)
+
+
+@router.post("/lines/{line_id}/score-unscored", response_model=ScoreJob)
+def start_score_unscored(line_id: str):
+    """Queue a server-side job scoring every unscored part with the active model."""
+    return call(score_jobs.start, line_id)
+
+
+@router.get("/lines/{line_id}/score-unscored", response_model=ScoreJob)
+def get_score_unscored(line_id: str):
+    """Progress of the line's latest score-unscored job (`idle` when none ran)."""
+    return call(score_jobs.get, line_id)
 
 
 @router.put("/lines/{line_id}/parts/{serial}/verdict", response_model=InspectionRecord)

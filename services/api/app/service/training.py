@@ -9,20 +9,39 @@ checkpoint, metrics and manifest back to B2 beside the version record.
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from threading import Lock
 
 from app.repo import anomaly_engine, b2_store, local_cache
 from app.repo.anomaly_train import train_patchcore
-from app.service import keys, lines, metrics_calc, model_versions, state, train_runner
+from app.service import (
+    keys,
+    lines,
+    metrics_calc,
+    model_versions,
+    score_jobs,
+    state,
+    train_runner,
+)
 from app.service.errors import InspectionError, unavailable
+from app.types.lines import MIN_TRAIN_IMAGES
 from app.types.models import ModelStatus, ModelVersion, TrainingSource, TrainModelRequest
 
 logger = logging.getLogger(__name__)
 
-MIN_TRAIN_IMAGES = 2
+# The stages a run reports, in order; their index gives the run's progress.
+STAGES = (
+    "Waiting for the training worker",
+    "Reading images from B2",
+    "Training PatchCore",
+    "Evaluating",
+    "Writing checkpoint to B2",
+    "Publishing the version",
+)
 HOLDOUT_EVERY = 5  # every 5th reference normal (by serial) is held out for eval
 _start_lock = Lock()
+_HEAD_POOL_SIZE = 8
 
 
 def assemble_training_set(st: state.LineState, source: TrainingSource) -> list[dict]:
@@ -87,8 +106,11 @@ def start_training(line_id: str, req: TrainModelRequest) -> ModelVersion:
     with _start_lock:
         entries = assemble_training_set(state.load_line_state(line_id), req.source)
         _check_trainable(entries)
-        for entry in entries:
-            meta = b2_store.head(entry["key"])
+        # One HEAD per image, in parallel: done one by one they made "Train new
+        # version" block for seconds before the run was even queued.
+        with ThreadPoolExecutor(max_workers=_HEAD_POOL_SIZE) as pool:
+            metas = list(pool.map(b2_store.head, [entry["key"] for entry in entries]))
+        for entry, meta in zip(entries, metas, strict=True):
             if meta is None:
                 raise InspectionError(f"Image '{entry['key']}' is missing from B2", 409)
             entry["etag"] = meta["etag"]
@@ -98,6 +120,8 @@ def start_training(line_id: str, req: TrainModelRequest) -> ModelVersion:
             line_id=line_id,
             version=version,
             status=ModelStatus.queued,
+            stage=STAGES[0],
+            progress=0.0,
             backbone=anomaly_engine.BACKBONE,
             image_size=req.image_size,
             coreset_ratio=req.coreset_ratio,
@@ -127,11 +151,13 @@ def start_training(line_id: str, req: TrainModelRequest) -> ModelVersion:
     return record
 
 
-def _prepare_run_dir(line_id: str, version: str, entries: list[dict]):
+def _prepare_run_dir(line_id: str, version: str, entries: list[dict], on_image=None):
     run_dir = local_cache.workdir(line_id, version)
     eval_paths: list[tuple[dict, object]] = []
-    for entry in entries:
+    for done, entry in enumerate(entries, start=1):
         cached = local_cache.fetch(entry["key"], entry["etag"])
+        if on_image:
+            on_image(done, len(entries))
         name = f"{entry['serial']}.png"
         if entry["role"] == "train":
             local_cache.link_into(cached, run_dir / "train" / "good", name)
@@ -141,17 +167,53 @@ def _prepare_run_dir(line_id: str, version: str, entries: list[dict]):
     return run_dir, eval_paths
 
 
+def _upload_checkpoint(checkpoint, key: str, stage) -> None:
+    """The slowest stage on a typical uplink: report bytes sent as it goes."""
+    total = checkpoint.stat().st_size
+    sent = [0]
+
+    def on_bytes(increment: int) -> None:
+        sent[0] += increment
+        stage("Writing checkpoint to B2", sent[0] / total if total else 1.0,
+              f"{sent[0] / 1e6:.1f} of {total / 1e6:.1f} MB")
+
+    b2_store.upload_file(key, checkpoint, "application/octet-stream", on_bytes)
+
+
 def run_training(line_id: str, version: str) -> None:
     """The job body: runs on the train-runner thread."""
     key_of = lambda name: keys.model_file(line_id, version, name)  # noqa: E731
     record = model_versions.get_version(line_id, version)
     record.status = ModelStatus.training
     record.started_at = datetime.now(UTC)
-    model_versions.save(record)
+
+    saved_bucket = [-1]
+
+    def stage(text: str, fraction: float = 0.0, detail: str | None = None) -> None:
+        """Save the stage (and how far into it) so the Models page shows progress.
+
+        Sub-progress is saved at most once per tenth of a stage: every save is a
+        B2 PUT of version.json, which must not slow the stage it reports on.
+        """
+        index = STAGES.index(text)
+        bucket = index * 10 + min(int(fraction * 10), 9)
+        if bucket == saved_bucket[0]:
+            return
+        saved_bucket[0] = bucket
+        record.stage = f"{text} ({detail})" if detail else text
+        record.progress = (index + min(fraction, 1.0)) / len(STAGES)
+        model_versions.save(record)
+
     try:
+        stage("Reading images from B2")
         manifest = b2_store.get_json(key_of("training-set.json"))
-        run_dir, eval_paths = _prepare_run_dir(line_id, version, manifest["entries"])
+        run_dir, eval_paths = _prepare_run_dir(
+            line_id, version, manifest["entries"],
+            lambda done, total: stage("Reading images from B2", done / total, f"{done} of {total}"),
+        )
+        stage("Training PatchCore")
         scorer = train_patchcore(run_dir, record.image_size, record.coreset_ratio)
+        stage("Evaluating")
         labels = [1 if e["label"] == "anomalous" else 0 for e, _ in eval_paths]
         scores = [scorer.score(path)[0] for _, path in eval_paths]
         metrics = metrics_calc.evaluate(labels, scores)
@@ -168,12 +230,12 @@ def run_training(line_id: str, version: str) -> None:
                 "eval_scores": json.dumps([round(s, 6) for s in scores]),
             }
         )
+        stage("Writing checkpoint to B2")
         checkpoint = run_dir / "model.ckpt"
         scorer.save_checkpoint(checkpoint, {"line_id": line_id, "version": version,
                                             "threshold": metrics["threshold"]})
-        b2_store.put_bytes(
-            key_of("model.ckpt"), checkpoint.read_bytes(), "application/octet-stream", bulk=True
-        )
+        _upload_checkpoint(checkpoint, key_of("model.ckpt"), stage)
+        stage("Publishing the version")
         b2_store.put_json(key_of("metrics.json"), metrics)
         record.status = ModelStatus.ready
         record.threshold = metrics["threshold"]
@@ -186,7 +248,15 @@ def run_training(line_id: str, version: str) -> None:
     except Exception as e:
         logger.exception("Training %s/%s failed", line_id, version)
         record.status, record.error = ModelStatus.failed, f"{type(e).__name__}: {e}"[:500]
+    record.stage = None
+    record.progress = None
     record.finished_at = datetime.now(UTC)
-    model_versions.save(record)
     if record.status == ModelStatus.ready and lines.get_line(line_id).active_model_version is None:
-        lines.set_active_model(line_id, version)  # a line's first model goes live
+        # A line's first model goes live and scores the parts captured while
+        # there was none. Job first, then activation, then `ready`: a client
+        # that sees the line active always finds its score job, and one that
+        # sees `ready` always sees it active (the job runs after this one on
+        # the single train runner).
+        score_jobs.start(line_id, version)
+        lines.set_active_model(line_id, version)
+    model_versions.save(record)

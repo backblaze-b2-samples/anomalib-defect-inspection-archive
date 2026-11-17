@@ -28,7 +28,7 @@ import { EngineNotice } from "@/components/inspection/engine-notice";
 import { PartEvidence } from "@/components/inspection/part-evidence";
 import { PartStatusBadge } from "@/components/inspection/status-badge";
 import { VerdictForm } from "@/components/inspection/verdict-form";
-import { formatDateTime, formatPercent, formatScore } from "@/lib/inspection-format";
+import { describeScoreRef, formatDateTime, formatPercent, formatScore } from "@/lib/inspection-format";
 import { useModels, usePartTrace, useScorePart } from "@/lib/queries";
 
 export default function TracePartPage() {
@@ -42,7 +42,15 @@ export default function TracePartPage() {
   const [version, setVersion] = useState<string | undefined>(undefined);
   const [shownScore, setShownScore] = useState(0);
 
-  if (error) return <ErrorState error={error} onRetry={() => refetch()} />;
+  if (error)
+    return (
+      <div className="space-y-4">
+        <ErrorState error={error} onRetry={() => refetch()} />
+        <Button asChild variant="outline" size="sm">
+          <Link href="/trace">Back to Trace search</Link>
+        </Button>
+      </div>
+    );
   if (isLoading || !part) return <Skeleton className="h-96" />;
   const shown = part.scores[shownScore] ?? part.scores[0];
   const base = `/lines/${encodeURIComponent(lineId)}`;
@@ -66,6 +74,10 @@ export default function TracePartPage() {
           {part.serial} <PartStatusBadge status={part.status} />
         </h1>
         <p className="mt-1.5 text-sm text-muted-foreground">
+          <Link className="underline-offset-4 hover:underline" href="/trace">
+            Trace search
+          </Link>{" "}
+          ·{" "}
           <Link className="underline-offset-4 hover:underline" href={base}>
             {lineId}
           </Link>{" "}
@@ -96,7 +108,7 @@ export default function TracePartPage() {
               <CardTitle className="card-title">{part.verdict ? "Change verdict" : "Record verdict"}</CardTitle>
             </CardHeader>
             <CardContent className="p-5">
-              <VerdictForm lineId={lineId} serial={serial} current={part.verdict} />
+              <VerdictForm lineId={lineId} serial={serial} current={part.verdict} reference={part.reference} />
             </CardContent>
           </Card>
           <Card>
@@ -186,7 +198,9 @@ export default function TracePartPage() {
                       {v.operator}
                       {v.note && <span className="block text-xs text-muted-foreground">{v.note}</span>}
                     </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{v.score_ref ?? "-"}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {describeScoreRef(v.score_ref, part.scores)}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

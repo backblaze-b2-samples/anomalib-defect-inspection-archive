@@ -6,7 +6,8 @@ Reliability expectations and practices for this project.
 ## Health Checks
 
 - `GET /health` verifies B2 connectivity and returns `healthy` or `degraded`
-- Health endpoint is always available, even when B2 is down
+- Health endpoint is always available, even when B2 is down: the B2 probe runs on its own thread and `/health` waits at most 2 seconds for it, reporting the last known result (or `degraded`) meanwhile, so an unreachable endpoint that takes a minute to refuse a connection never makes the API look dead
+- Startup never touches B2 on the request path: the bucket-listing and dashboard warm-ups run on daemon threads
 - The B2 client bounds connection attempts to 5 seconds, socket reads to 30
   seconds, and standard retries to 3 total attempts. Normal tests mock this
   boundary and deny network access; real connectivity is opt-in through

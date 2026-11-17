@@ -20,11 +20,12 @@ import {
 } from "@/components/ui/chart";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
+import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingNotice } from "@/components/common/loading-notice";
 import { PartsTable } from "@/components/inspection/parts-table";
-import { ARCHIVE_KIND_LABELS, formatBytes } from "@/lib/inspection-format";
-import { useInspectionStats } from "@/lib/queries";
+import { ARCHIVE_KIND_LABELS, formatBytes, progressValueProps } from "@/lib/inspection-format";
+import { useInspectionStats, useInspectionStatsProgress } from "@/lib/queries";
 import type { ArchiveKind } from "@anomalib-defect-inspection-archive/shared";
 
 const chartConfig = {
@@ -33,6 +34,12 @@ const chartConfig = {
 
 export function InspectionOverview() {
   const { data: stats, isLoading, error, refetch } = useInspectionStats();
+  // While the server is still reading lines, show how far it has got.
+  const { data: progress } = useInspectionStatsProgress(isLoading);
+  const linePercent =
+    progress?.running && progress.lines_total > 0
+      ? Math.round((progress.lines_done / progress.lines_total) * 100)
+      : null;
 
   const perDay = useMemo(
     () =>
@@ -63,7 +70,26 @@ export function InspectionOverview() {
 
   return (
     <div className="space-y-6">
-      {isLoading && <LoadingNotice subject="inspection stats" />}
+      {isLoading && (
+        <div className="space-y-2">
+          <LoadingNotice
+            subject="inspection stats"
+            slowHint="Reading each line's parts, scores and verdicts from B2. They are written once, so after this first read the dashboard only lists the archive."
+          />
+          {linePercent !== null && progress && (
+            <div className="flex max-w-md items-center gap-2">
+              <Progress
+                value={linePercent}
+                aria-label="Lines read for the dashboard"
+                {...progressValueProps(linePercent)}
+              />
+              <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
+                line {progress.lines_done} of {progress.lines_total}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
       <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-6">
         {cards.map((card, i) => (
           <Card key={card.title} className={`card-hover animate-fade-in-up stagger-${(i % 4) + 1}`}>

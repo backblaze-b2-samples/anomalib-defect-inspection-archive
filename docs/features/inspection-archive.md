@@ -25,6 +25,8 @@ Browse what the inspection pipeline has written under `lines/` by line, capture 
 
 ## Edge Cases
 - No lines or no captures: empty page with an empty state
+- No line chosen: the first line (by id) is selected and shown in the Line selector
+- Image and heatmap tiles show a pulsing placeholder until each image loads, load lazily, and say so when an image fails
 - Read-only: nothing in this view deletes or overwrites
 
 ## Verification

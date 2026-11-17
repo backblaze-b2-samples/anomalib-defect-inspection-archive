@@ -16,6 +16,7 @@ class PartStatus(StrEnum):
     in_review = "in_review"
     passed = "passed"
     failed = "failed"
+    reference = "reference"  # a scored reference image: labelled at capture, never reviewed
 
 
 class Verdict(StrEnum):
@@ -168,6 +169,14 @@ class InspectionStats(ResponseModel):
     bytes_by_kind: dict[str, int]
     parts_per_day: list[DailyPartCount]
     recent_above_threshold: list[InspectionRecord]
+
+
+class StatsProgress(ResponseModel):
+    """How far a dashboard stats computation has got, for a determinate wait."""
+
+    running: bool
+    lines_done: int
+    lines_total: int
 
 
 class EngineStatus(ResponseModel):

@@ -18,7 +18,8 @@ def job_id(line_id: str, version: str) -> str:
 
 def save(record: ModelVersion) -> None:
     key = keys.model_file(record.line_id, record.version, "version.json")
-    b2_store.put_json(key, record.model_dump(mode="json"))
+    # `active` belongs to the line record; storing it here would go stale.
+    b2_store.put_json(key, record.model_dump(mode="json", exclude={"active"}))
 
 
 def reconcile(record: ModelVersion) -> ModelVersion:
@@ -28,6 +29,7 @@ def reconcile(record: ModelVersion) -> ModelVersion:
     ):
         record.status = ModelStatus.interrupted
         record.error = INTERRUPTED_MESSAGE
+        record.stage = None
         record.finished_at = datetime.now(UTC)
         save(record)
     return record
@@ -52,7 +54,8 @@ def version_numbers(line_id: str) -> list[int]:
 
 
 def list_versions(line_id: str) -> list[ModelVersion]:
-    lines.get_line(line_id)
+    """Newest first, each marked `active` from the same read of the line."""
+    active = lines.get_line(line_id).active_model_version
     out = []
     for number in version_numbers(line_id):
         try:
@@ -60,6 +63,8 @@ def list_versions(line_id: str) -> list[ModelVersion]:
         except InspectionError as e:
             if e.status_code != 404:  # a version folder still being written
                 raise
+    for record in out:
+        record.active = record.version == active
     return sorted(out, key=lambda record: int(record.version[1:]), reverse=True)
 
 
@@ -99,6 +104,7 @@ def detail(line_id: str, version: str) -> ModelVersionDetail:
         except b2_store.ObjectNotFound:
             metrics = {}
     ready = record.status == ModelStatus.ready
+    record.active = lines.get_line(line_id).active_model_version == version
     return ModelVersionDetail(
         **record.model_dump(),
         metrics={k: v for k, v in metrics.items() if isinstance(v, (int, float, str)) or v is None},

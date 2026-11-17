@@ -58,6 +58,21 @@ class ModelVersion(ResponseModel):
     finished_at: datetime | None = None
     error: str | None = None
     anomalib_version: str | None = None
+    stage: str | None = Field(
+        default=None,
+        description="What a training run is doing right now; null once it has finished.",
+    )
+    progress: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        description="Share of the training stages already done (0-1); null once finished.",
+    )
+    active: bool = Field(
+        default=False,
+        description="True when this is the line's active version (derived from the line, "
+        "never stored in version.json).",
+    )
 
 
 class TrainingSetEntry(ResponseModel):

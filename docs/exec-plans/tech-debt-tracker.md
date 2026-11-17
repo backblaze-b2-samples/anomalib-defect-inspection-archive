@@ -64,3 +64,19 @@ Known tech debt items. Agents update this when they discover or create tech debt
 | Custom `FileNotFoundError` shadowed the built-in | Renamed to `FileNotFoundServiceError` |
 | Dropzone accepted any file type client-side | `accept` allow-list mirroring backend `ALLOWED_TYPES` (tested for drift) |
 | No test harness for feature specs | pytest suite across upload, files, activity, errors, validation, rate limit, pagination |
+
+## 2026-11-16 — verify
+
+- friction (unresolved after 3 rounds): Review queue — Operator field is empty after reloading /review and submit shows "Who is recording this verdict?" → operator initials are not remembered across visits despite the localStorage preference (the prefill may lose a hydration race) (.local/verify/r3/A/34-initials-required-after-reload.png)
+- friction (unresolved after 3 rounds): Line detail — after the automatic scoring job ends the job card disappears but the page keeps showing Unscored 14 / "No scores yet" until a later reload → the post-job refresh does not land promptly, so the line looks unscored (.local/verify/r3/B/18-line-after-autoscore.png)
+- Line detail — "Parts" tile shows 24 while the "Today's parts" table, filtered to Today (UTC), lists 2 → the Parts tile has no scope label, so the counts look inconsistent after UTC midnight (.local/verify/r3/A/30-line-detail-after-v2.png)
+- Models — right after rolling back to v1, the "v2 is ready but not active / Activate v2" notice reappears with a primary button → after a deliberate rollback the notice should not push the operator back to v2 (.local/verify/r3/C/32-rollback-v1.png)
+- Dashboard — no create-line or first-time setup hint, only "Capture part" and "Review queue" → add an onboarding hint for an empty install (.local/verify/r3/A/01-dashboard.png)
+- Dashboard and line detail charts — y-axis tick labels are clipped at the left edge; the score distribution draws no threshold marker → widen the axis margin and draw the threshold (.local/verify/r3/C/46-dashboard-settled.png)
+- Dashboard — "Recent parts above threshold" and the Above threshold counts include reference images, which the review queue excludes, and the table is not in captured-time order → align the definition and sort by time (.local/verify/r3/C/46-dashboard-settled.png)
+- Line detail — the automatic scoring banner stays at "part 1 of N, 0%" for ~10-20s before advancing → report progress as soon as the first part starts (.local/verify/r3/B/15-autoscore-mid.png)
+- Review queue — the verdict save shows a disabled "Saving..." button with no spinner for ~4s → add a spinner, matching the capture button (.local/verify/r3/B/33-verdict-saving.png)
+- Capture — a .txt upload shows "File type must be one of image/png, .png, image/jpeg, .jpg, .jpeg" → use plain wording ("Choose a PNG or JPEG image") (.local/verify/r3/B/07-capture-invalid-file.png)
+- Capture and Models — dev console logs a React hydration mismatch (file input inline style; TrainForm radio) → fix the server/client style difference (.local/verify/r3/A/07-capture-no-model-result.png)
+- Review queue — the item's image and heatmap boxes stay grey for ~4s after a deep-link load before painting → consider preloading or a lighter thumbnail (.local/verify/r3/A/22a-review-empty-first-visit.png)
+- Breadcrumbs — line ids and serials are title-cased ("R3c Line 01") instead of showing the line name or the exact id → render the name or the raw id (.local/verify/r3/C/45-line-first-paint.png)

@@ -156,6 +156,19 @@
     "put /lines/{line_id}/parts/{serial}/verdict": {
       "route": "partVerdict"
     },
+    "post /lines/{line_id}/score-unscored": {
+      "route": "scoreUnscoredStart"
+    },
+    "get /lines/{line_id}/score-unscored": {
+      "route": "scoreJob",
+      "query": {
+        "name": "scoreJob",
+        "segments": [
+          "lines",
+          "score-job"
+        ]
+      }
+    },
     "get /review-queue": {
       "route": "reviewQueue",
       "query": {
@@ -219,6 +232,15 @@
         "segments": [
           "lines",
           "stats"
+        ]
+      }
+    },
+    "get /inspection/stats/progress": {
+      "route": "inspectionStatsProgress",
+      "query": {
+        "name": "inspectionStatsProgress",
+        "segments": [
+          "inspection-stats-progress"
         ]
       }
     },

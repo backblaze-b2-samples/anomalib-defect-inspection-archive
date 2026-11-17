@@ -4,7 +4,7 @@ import socket
 
 import pytest
 
-from app.repo import b2_client
+from app.repo import b2_client, b2_health
 from app.runtime import health as health_runtime
 
 
@@ -61,3 +61,27 @@ async def test_metrics_returns_200(client):
     assert response.status_code == 200
     assert "http_requests_total" in response.text
     assert "uploads_total" in response.text
+
+
+def test_connectivity_check_answers_fast_while_b2_hangs(monkeypatch):
+    """A B2 connect that hangs (DNS, connect timeouts x retries) must not hang
+    /health: dev tooling and uptime probes would see a dead API for minutes."""
+    import threading
+    import time
+
+    release = threading.Event()
+
+    def hanging_probe() -> bool:
+        release.wait(5)
+        return True
+
+    monkeypatch.setattr(b2_health, "_probe_b2", hanging_probe)
+    monkeypatch.setattr(b2_health, "_HEALTH_WAIT_SECONDS", 0.2)
+    started = time.monotonic()
+    assert b2_health.check_connectivity() is False  # unknown yet: reported as not connected
+    assert time.monotonic() - started < 1.5
+    release.set()
+    deadline = time.monotonic() + 3
+    while b2_health._health_cache is None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert b2_health.check_connectivity() is True  # the background probe's result

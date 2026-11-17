@@ -14,6 +14,7 @@ import {
   getArchive,
   getEngine,
   getInspectionStats,
+  getInspectionStatsProgress,
   getLineDetail,
   getLines,
   getModelDetail,
@@ -21,9 +22,11 @@ import {
   getPartTrace,
   getParts,
   getReviewQueue,
+  getScoreJob,
   recordVerdict,
   scorePart,
   searchTrace,
+  startScoreUnscored,
   trainModel,
   updateLine,
   type ArchiveQuery,
@@ -40,6 +43,11 @@ import {
 } from "@/lib/api-client";
 import type {
   CreateLineRequest,
+  Line,
+  LineDetail,
+  ModelVersion,
+  ReviewItem,
+  ScoreJob,
   TrainModelRequest,
   UpdateLineRequest,
   VerdictRequest,
@@ -206,10 +214,26 @@ export function useLines() {
   return useQuery({ queryKey: qk.lines(), queryFn: getLines });
 }
 
+/**
+ * One line with its counters. When a re-read finds a new active version (the
+ * first model finished training and went live), the line's score job is
+ * re-read too: the server queues it before activating, so the page shows its
+ * progress instead of offering a manual "Score unscored" button.
+ */
 export function useLineDetail(lineId: string | undefined) {
+  const qc = useQueryClient();
+  const key = [...qk.lineDetail(), lineId ?? ""];
   return useQuery({
-    queryKey: [...qk.lineDetail(), lineId ?? ""],
-    queryFn: () => getLineDetail(lineId as string),
+    queryKey: key,
+    queryFn: async () => {
+      const previous = qc.getQueryData<LineDetail>(key);
+      const next = await getLineDetail(lineId as string);
+      if (activeModelChanged(previous, next)) {
+        qc.invalidateQueries({ queryKey: [...qk.scoreJob(), lineId ?? ""] });
+        qc.invalidateQueries({ queryKey: [...qk.models(), lineId ?? ""] });
+      }
+      return next;
+    },
     enabled: !!lineId,
   });
 }
@@ -245,16 +269,135 @@ export function useTraceSearch(serial: string, lineId?: string) {
   });
 }
 
-/** Model versions; polls every 5s while any version is queued or training. */
-export function useModels(lineId: string | undefined) {
+const UNFINISHED_MODEL = new Set<ModelVersion["status"]>(["queued", "training"]);
+
+/** True while any version of the line is queued or training. */
+export function isTrainingInFlight(models: ModelVersion[] | undefined): boolean {
+  return (models ?? []).some((m) => UNFINISHED_MODEL.has(m.status));
+}
+
+/**
+ * True when a version that was queued/training in `previous` has finished in
+ * `next`. A finished run can change the line itself (its first ready version
+ * becomes active and starts scoring the unscored parts), so the caller
+ * re-reads the line; without this the Versions table offered "Activate" on a
+ * version that was already active until a reload.
+ */
+export function modelRunFinished(
+  previous: ModelVersion[] | undefined,
+  next: ModelVersion[],
+): boolean {
+  return finishedModelRuns(previous, next).length > 0;
+}
+
+/** The versions (as now read) that were queued/training in `previous` and are not any more. */
+export function finishedModelRuns(
+  previous: ModelVersion[] | undefined,
+  next: ModelVersion[],
+): ModelVersion[] {
+  if (!previous) return [];
+  const before = new Map(previous.map((m) => [m.version, m.status]));
+  return next.filter((m) => {
+    const was = before.get(m.version);
+    return was !== undefined && UNFINISHED_MODEL.has(was) && !UNFINISHED_MODEL.has(m.status);
+  });
+}
+
+/** Put a just-queued version at the top of its line's cached version list. */
+export function addQueuedModel(qc: QueryClient, queued: ModelVersion) {
+  qc.setQueryData<ModelVersion[]>([...qk.models(), queued.line_id], (previous) =>
+    previous && !previous.some((m) => m.version === queued.version)
+      ? [queued, ...previous]
+      : previous,
+  );
+}
+
+/** True when a re-read line names a different active version than the cached one. */
+export function activeModelChanged(previous: LineDetail | undefined, next: LineDetail): boolean {
+  return !!previous && previous.active_model_version !== next.active_model_version;
+}
+
+/** Reflect a new active version in the cached line detail, line list and version list. */
+export function applyActivatedModel(qc: QueryClient, line: Line) {
+  const active = line.active_model_version;
+  qc.setQueryData<ModelVersion[]>([...qk.models(), line.line_id], (previous) =>
+    previous?.map((m) => ({ ...m, active: m.version === active })),
+  );
+  qc.setQueryData<LineDetail>([...qk.lineDetail(), line.line_id], (previous) =>
+    previous ? { ...previous, active_model_version: active } : previous,
+  );
+  qc.setQueryData<Line[]>(qk.lines(), (previous) =>
+    previous?.map((l) => (l.line_id === line.line_id ? { ...l, active_model_version: active } : l)),
+  );
+}
+
+/** Drop a part that just got its verdict from every cached review queue. */
+export function dropVerdictedPartFromQueue(qc: QueryClient, lineId: string, serial: string) {
+  qc.setQueriesData<ReviewItem[]>(
+    // Partial key: matches qk.reviewQueue(line, limit) for every filter.
+    { queryKey: [...qk.lines(), "review"] },
+    (previous) =>
+      previous?.filter((item) => !(item.line_id === lineId && item.serial === serial)),
+  );
+}
+
+/**
+ * Model versions. Polls every 2s while a version is queued or training, so the
+ * stage the run reports stays live; re-reads the line when a run finishes.
+ */
+export function useModels(
+  lineId: string | undefined,
+  { onRunsFinished }: { onRunsFinished?: (runs: ModelVersion[]) => void } = {},
+) {
+  const qc = useQueryClient();
+  const key = [...qk.models(), lineId ?? ""];
   return useQuery({
-    queryKey: [...qk.models(), lineId ?? ""],
-    queryFn: () => getModels(lineId as string),
+    queryKey: key,
+    queryFn: async () => {
+      const previous = qc.getQueryData<ModelVersion[]>(key);
+      const next = await getModels(lineId as string);
+      const finished = finishedModelRuns(previous, next);
+      if (finished.length > 0) onRunsFinished?.(finished);
+      if (finished.length > 0) {
+        qc.invalidateQueries({ queryKey: [...qk.lineDetail(), lineId ?? ""] });
+        qc.invalidateQueries({ queryKey: qk.lines(), exact: true });
+        qc.invalidateQueries({ queryKey: [...qk.scoreJob(), lineId ?? ""] });
+      }
+      return next;
+    },
     enabled: !!lineId,
-    refetchInterval: (query) =>
-      query.state.data?.some((m) => m.status === "queued" || m.status === "training")
-        ? 5_000
-        : false,
+    refetchInterval: (query) => (isTrainingInFlight(query.state.data) ? 2_000 : false),
+  });
+}
+
+export function isScoreJobActive(job: ScoreJob | undefined): boolean {
+  return job?.status === "queued" || job?.status === "running";
+}
+
+/**
+ * The line's server-side "score every unscored part" job. Polls every 1.5s
+ * while it runs; when it ends, every view of the line is re-read so counters,
+ * chart and parts table show the new scores.
+ */
+export function useScoreJob(lineId: string | undefined) {
+  const qc = useQueryClient();
+  const key = [...qk.scoreJob(), lineId ?? ""];
+  return useQuery({
+    queryKey: key,
+    queryFn: async () => {
+      const previous = qc.getQueryData<ScoreJob>(key);
+      const next = await getScoreJob(lineId as string);
+      if (isScoreJobActive(previous) && !isScoreJobActive(next)) {
+        qc.invalidateQueries({
+          queryKey: qk.lines(),
+          predicate: (query) => query.queryKey[2] !== "score-job",
+        });
+      }
+      return next;
+    },
+    enabled: !!lineId,
+    staleTime: 0,
+    refetchInterval: (query) => (isScoreJobActive(query.state.data) ? 1_500 : false),
   });
 }
 
@@ -270,15 +413,28 @@ export function useModelDetail(lineId: string | undefined, version: string | und
   });
 }
 
-export function useArchive(query: ArchiveQuery) {
+export function useArchive(query: ArchiveQuery, { enabled = true }: QueryGate = {}) {
   return useQuery({
     queryKey: qk.archive(query.lineId, query.date, query.kind, query.cursor),
     queryFn: () => getArchive(query),
+    enabled,
   });
 }
 
 export function useInspectionStats() {
-  return useQuery({ queryKey: qk.inspectionStats(), queryFn: getInspectionStats });
+  return useQuery({ queryKey: qk.inspectionStats(), queryFn: () => getInspectionStats() });
+}
+
+/** Lines processed by the stats computation; polled only while the dashboard waits. */
+export function useInspectionStatsProgress(enabled: boolean) {
+  return useQuery({
+    queryKey: qk.inspectionStatsProgress(),
+    queryFn: getInspectionStatsProgress,
+    enabled,
+    staleTime: 0,
+    retry: false,
+    refetchInterval: enabled ? 1_000 : false,
+  });
 }
 
 export function useEngine() {
@@ -332,25 +488,48 @@ export function useScorePart(lineId: string) {
 }
 
 export function useRecordVerdict(lineId: string, serial: string) {
+  const qc = useQueryClient();
   const invalidate = useInvalidateInspection();
   return useMutation<Awaited<ReturnType<typeof recordVerdict>>, ApiError, VerdictRequest>({
     mutationFn: (body) => recordVerdict(lineId, serial, body),
-    onSuccess: invalidate,
+    // The queue refetch re-reads the whole line (seconds), so drop the row now.
+    onSuccess: () => {
+      dropVerdictedPartFromQueue(qc, lineId, serial);
+      invalidate();
+    },
   });
 }
 
 export function useTrainModel(lineId: string) {
+  const qc = useQueryClient();
   const invalidate = useInvalidateInspection();
   return useMutation<Awaited<ReturnType<typeof trainModel>>, ApiError, TrainModelRequest>({
     mutationFn: (body) => trainModel(lineId, body),
-    onSuccess: invalidate,
+    onSuccess: (queued) => {
+      addQueuedModel(qc, queued);
+      invalidate();
+    },
   });
 }
 
 export function useActivateModel(lineId: string) {
+  const qc = useQueryClient();
   const invalidate = useInvalidateInspection();
   return useMutation<Awaited<ReturnType<typeof activateModel>>, ApiError, string>({
     mutationFn: (version) => activateModel(lineId, version),
-    onSuccess: invalidate,
+    // The line-detail refetch takes seconds; show the new active version with the toast.
+    onSuccess: (line) => {
+      applyActivatedModel(qc, line);
+      invalidate();
+    },
+  });
+}
+
+/** Queue the server-side job that scores every unscored part of the line. */
+export function useStartScoreUnscored(lineId: string) {
+  const qc = useQueryClient();
+  return useMutation<ScoreJob, ApiError, void>({
+    mutationFn: () => startScoreUnscored(lineId),
+    onSuccess: (job) => qc.setQueryData([...qk.scoreJob(), lineId], job),
   });
 }

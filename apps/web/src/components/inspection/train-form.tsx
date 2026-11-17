@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
 import type { TrainingSource } from "@anomalib-defect-inspection-archive/shared";
 
 import { Button } from "@/components/ui/button";
@@ -17,14 +19,35 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EngineFacts } from "@/components/inspection/engine-notice";
-import { CORESET_RATIOS, IMAGE_SIZES, TRAINING_SOURCE_LABELS } from "@/lib/inspection-format";
+import {
+  CORESET_RATIOS,
+  IMAGE_SIZES,
+  TRAINING_SOURCE_LABELS,
+  captureReferencesHref,
+} from "@/lib/inspection-format";
 import { useEngine, useTrainModel } from "@/lib/queries";
 
 type ImageSize = (typeof IMAGE_SIZES)[number];
 type CoresetRatio = (typeof CORESET_RATIOS)[number];
 
-/** "Train new version": every finite option is a selector, defaults pre-chosen. */
-export function TrainForm({ lineId }: { lineId: string }) {
+/**
+ * "Train new version": every finite option is a selector, defaults pre-chosen.
+ * Disabled while `busyVersion` (a queued or training run of this line) is in
+ * flight, so one click cannot stack a second run behind it by accident.
+ */
+export function TrainForm({
+  lineId,
+  busyVersion,
+  blockedReason,
+  autoFocus,
+}: {
+  lineId: string;
+  busyVersion?: string;
+  /** Why training cannot start yet (too few known-good references), or null. */
+  blockedReason?: string | null;
+  /** Focus the Train button (deep link `?train=1`). */
+  autoFocus?: boolean;
+}) {
   const [source, setSource] = useState<TrainingSource>("reference_and_adjudicated");
   const [imageSize, setImageSize] = useState<ImageSize>(256);
   const [coreset, setCoreset] = useState<CoresetRatio>(0.1);
@@ -38,7 +61,7 @@ export function TrainForm({ lineId }: { lineId: string }) {
       {
         onSuccess: (model) => {
           toast.success(`Training ${model.version} queued`, {
-            description: "Images are read back from B2; the list updates when it finishes.",
+            description: "Images are read back from B2; the Versions table shows each stage.",
           });
           setNote("");
         },
@@ -114,9 +137,43 @@ export function TrainForm({ lineId }: { lineId: string }) {
         />
       </div>
       <div className="space-y-1.5">
-        <Button size="sm" onClick={submit} disabled={train.isPending || engine?.ml_available === false}>
-          {train.isPending ? "Queuing..." : "Train new version"}
+        <Button
+          size="sm"
+          onClick={submit}
+          autoFocus={autoFocus && !blockedReason}
+          aria-describedby={blockedReason ? "train-blocked" : undefined}
+          disabled={
+            train.isPending || !!busyVersion || !!blockedReason || engine?.ml_available === false
+          }
+        >
+          {train.isPending ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Queuing...
+            </>
+          ) : busyVersion ? (
+            `Training ${busyVersion}...`
+          ) : (
+            "Train new version"
+          )}
         </Button>
+        {busyVersion && (
+          <p className="text-xs text-muted-foreground">
+            Available again when {busyVersion} finishes.
+          </p>
+        )}
+        {blockedReason && !busyVersion && (
+          <p id="train-blocked" className="text-xs text-muted-foreground">
+            {blockedReason}{" "}
+            <Link className="font-medium text-foreground underline underline-offset-4" href={captureReferencesHref(lineId)}>
+              Capture known-good references
+            </Link>
+          </p>
+        )}
+        {train.error && !train.isPending && (
+          <p role="alert" className="text-xs text-destructive">
+            {train.error.message}
+          </p>
+        )}
         <EngineFacts />
       </div>
     </div>

@@ -968,6 +968,12 @@
             "title": "Line Id",
             "type": "string"
           },
+          "min_normal_references": {
+            "default": 3,
+            "description": "Known-good references a first training run needs.",
+            "title": "Min Normal References",
+            "type": "integer"
+          },
           "model_count": {
             "title": "Model Count",
             "type": "integer"
@@ -975,6 +981,11 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "normal_reference_count": {
+            "description": "Known-good reference images without a verdict: the pool the held-out threshold image comes from.",
+            "title": "Normal Reference Count",
+            "type": "integer"
           },
           "part_count": {
             "title": "Part Count",
@@ -1010,6 +1021,8 @@
           "passed_count",
           "failed_count",
           "model_count",
+          "normal_reference_count",
+          "min_normal_references",
           "scores"
         ],
         "title": "LineDetail",
@@ -1029,6 +1042,12 @@
       "ModelVersion": {
         "description": "One trained (or training) PatchCore model version of a line.",
         "properties": {
+          "active": {
+            "default": false,
+            "description": "True when this is the line's active version (derived from the line, never stored in version.json).",
+            "title": "Active",
+            "type": "boolean"
+          },
           "anomalib_version": {
             "anyOf": [
               {
@@ -1133,8 +1152,34 @@
             "description": "Line's active version when this one was trained.",
             "title": "Parent Version"
           },
+          "progress": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Share of the training stages already done (0-1); null once finished.",
+            "title": "Progress"
+          },
           "source": {
             "$ref": "#/components/schemas/TrainingSource"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a training run is doing right now; null once it has finished.",
+            "title": "Stage"
           },
           "started_at": {
             "anyOf": [
@@ -1203,13 +1248,22 @@
           "started_at",
           "finished_at",
           "error",
-          "anomalib_version"
+          "anomalib_version",
+          "stage",
+          "progress",
+          "active"
         ],
         "title": "ModelVersion",
         "type": "object"
       },
       "ModelVersionDetail": {
         "properties": {
+          "active": {
+            "default": false,
+            "description": "True when this is the line's active version (derived from the line, never stored in version.json).",
+            "title": "Active",
+            "type": "boolean"
+          },
           "anomalib_version": {
             "anyOf": [
               {
@@ -1357,8 +1411,34 @@
             "description": "Line's active version when this one was trained.",
             "title": "Parent Version"
           },
+          "progress": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Share of the training stages already done (0-1); null once finished.",
+            "title": "Progress"
+          },
           "source": {
             "$ref": "#/components/schemas/TrainingSource"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a training run is doing right now; null once it has finished.",
+            "title": "Stage"
           },
           "started_at": {
             "anyOf": [
@@ -1435,6 +1515,9 @@
           "finished_at",
           "error",
           "anomalib_version",
+          "stage",
+          "progress",
+          "active",
           "metrics",
           "training_set",
           "checkpoint_url",
@@ -1449,7 +1532,8 @@
           "below_threshold",
           "in_review",
           "passed",
-          "failed"
+          "failed",
+          "reference"
         ],
         "title": "PartStatus",
         "type": "string"
@@ -1971,6 +2055,111 @@
         "title": "ScoreEntry",
         "type": "object"
       },
+      "ScoreJob": {
+        "description": "Server-side run that scores every unscored part of a line.\n\nIt runs in the API process, so leaving or reloading the page does not stop it.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last per-part error, if any.",
+            "title": "Error"
+          },
+          "failed": {
+            "default": 0,
+            "title": "Failed",
+            "type": "integer"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "line_id": {
+            "title": "Line Id",
+            "type": "string"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "scored": {
+            "default": 0,
+            "title": "Scored",
+            "type": "integer"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ScoreJobStatus"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parts to score; null until counted.",
+            "title": "Total"
+          }
+        },
+        "required": [
+          "line_id",
+          "status",
+          "model_version",
+          "total",
+          "scored",
+          "failed",
+          "error",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "ScoreJob",
+        "type": "object"
+      },
+      "ScoreJobStatus": {
+        "enum": [
+          "idle",
+          "queued",
+          "running",
+          "done",
+          "failed"
+        ],
+        "title": "ScoreJobStatus",
+        "type": "string"
+      },
       "ScorePartRequest": {
         "properties": {
           "model_version": {
@@ -2064,6 +2253,30 @@
           "recent_scores"
         ],
         "title": "ScoreSummary",
+        "type": "object"
+      },
+      "StatsProgress": {
+        "description": "How far a dashboard stats computation has got, for a determinate wait.",
+        "properties": {
+          "lines_done": {
+            "title": "Lines Done",
+            "type": "integer"
+          },
+          "lines_total": {
+            "title": "Lines Total",
+            "type": "integer"
+          },
+          "running": {
+            "title": "Running",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "running",
+          "lines_done",
+          "lines_total"
+        ],
+        "title": "StatsProgress",
         "type": "object"
       },
       "TraceMatch": {
@@ -3070,6 +3283,28 @@
         ]
       }
     },
+    "/inspection/stats/progress": {
+      "get": {
+        "description": "Lines processed so far by the running (or last) stats computation.",
+        "operationId": "inspection_stats_progress_inspection_stats_progress_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsProgress"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Inspection Stats Progress",
+        "tags": [
+          "stats"
+        ]
+      }
+    },
     "/lines": {
       "get": {
         "description": "Every inspection line, by id.",
@@ -3812,6 +4047,90 @@
           }
         },
         "summary": "Record Verdict",
+        "tags": [
+          "inspection"
+        ]
+      }
+    },
+    "/lines/{line_id}/score-unscored": {
+      "get": {
+        "description": "Progress of the line's latest score-unscored job (`idle` when none ran).",
+        "operationId": "get_score_unscored_lines__line_id__score_unscored_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScoreJob"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Score Unscored",
+        "tags": [
+          "inspection"
+        ]
+      },
+      "post": {
+        "description": "Queue a server-side job scoring every unscored part with the active model.",
+        "operationId": "start_score_unscored_lines__line_id__score_unscored_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScoreJob"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Score Unscored",
         "tags": [
           "inspection"
         ]

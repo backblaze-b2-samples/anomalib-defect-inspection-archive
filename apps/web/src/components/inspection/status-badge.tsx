@@ -9,6 +9,7 @@ const PART_VARIANT: Record<PartStatus, "default" | "secondary" | "destructive" |
   in_review: "default",
   passed: "secondary",
   failed: "destructive",
+  reference: "outline",
 };
 
 export function PartStatusBadge({ status }: { status: PartStatus }) {

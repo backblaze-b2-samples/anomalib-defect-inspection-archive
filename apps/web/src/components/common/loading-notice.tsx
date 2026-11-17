@@ -12,6 +12,8 @@ interface LoadingNoticeProps {
   /** What is loading, lowercase, used mid-sentence ("files", "bucket stats"). */
   subject: string;
   className?: string;
+  /** Replaces the default "listing the bucket" explanation once the wait is slow. */
+  slowHint?: string;
 }
 
 /**
@@ -21,7 +23,7 @@ interface LoadingNoticeProps {
  * Mount it only while the wait is actually happening: the elapsed clock starts
  * when the component mounts.
  */
-export function LoadingNotice({ subject, className }: LoadingNoticeProps) {
+export function LoadingNotice({ subject, className, slowHint }: LoadingNoticeProps) {
   const [elapsedMs, setElapsedMs] = useState(0);
 
   useEffect(() => {
@@ -33,7 +35,9 @@ export function LoadingNotice({ subject, className }: LoadingNoticeProps) {
     return () => clearInterval(timer);
   }, []);
 
-  const { message, hint } = loadingCopy(elapsedMs, subject);
+  const copy = loadingCopy(elapsedMs, subject);
+  const { message } = copy;
+  const hint = copy.hint && slowHint ? slowHint : copy.hint;
 
   return (
     <div

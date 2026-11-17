@@ -43,3 +43,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# next dev writes this when it detects an AI coding agent (managed block from
+# node_modules/next/dist/server/lib/generate-agent-files.js). The repo's agent
+# instructions live in the root AGENTS.md; set `agentRules: false` in
+# next.config.ts to stop next dev from writing it at all.
+/AGENTS.md

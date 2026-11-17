@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ClipboardCheck } from "lucide-react";
+import { Brain, Camera, ClipboardCheck } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
@@ -13,17 +14,28 @@ import { ALL_LINES, LineSelect } from "@/components/inspection/line-select";
 import { PartEvidence } from "@/components/inspection/part-evidence";
 import { tracePath } from "@/components/inspection/parts-table";
 import { VerdictForm } from "@/components/inspection/verdict-form";
-import { formatDateTime, formatScore } from "@/lib/inspection-format";
+import { formatDateTime, formatScore, pickReviewItem, reviewItemId } from "@/lib/inspection-format";
 import { useReviewQueue } from "@/lib/queries";
 
-/** Flagged parts, oldest first; each opens a verdict panel. */
-export function ReviewQueue({ defaultLineId }: { defaultLineId?: string }) {
+/**
+ * Flagged parts, oldest first; each opens a verdict panel. `defaultSerial`
+ * (from "Open in review queue" after a capture) pre-selects that part instead
+ * of the oldest one.
+ */
+export function ReviewQueue({
+  defaultLineId,
+  defaultSerial,
+}: {
+  defaultLineId?: string;
+  defaultSerial?: string;
+}) {
   const [lineId, setLineId] = useState<string>(defaultLineId ?? ALL_LINES);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(
+    defaultLineId && defaultSerial ? reviewItemId({ line_id: defaultLineId, serial: defaultSerial }) : null,
+  );
   const filter = lineId === ALL_LINES ? undefined : lineId;
   const { data: queue, isLoading, error, refetch } = useReviewQueue(filter);
-  const current =
-    queue?.find((item) => `${item.line_id}/${item.serial}` === selected) ?? queue?.[0];
+  const current = pickReviewItem(queue, selected);
 
   return (
     <div className="space-y-6">
@@ -39,7 +51,30 @@ export function ReviewQueue({ defaultLineId }: { defaultLineId?: string }) {
         <EmptyState
           icon={ClipboardCheck}
           title="Nothing to review"
-          description="Parts whose score reaches the threshold land here until an operator records a verdict."
+          description="Parts whose score reaches the threshold land here until an operator records a verdict. Verdicts already recorded feed the next training run."
+          action={
+            <div className="flex flex-wrap justify-center gap-2">
+              {filter && (
+                <Button asChild size="sm" className="h-8">
+                  <Link href={`/lines/${encodeURIComponent(filter)}/models`}>
+                    <Brain className="h-3.5 w-3.5" /> Train a new version from verdicts
+                  </Link>
+                </Button>
+              )}
+              <Button asChild size="sm" variant={filter ? "outline" : "default"} className="h-8">
+                <Link href={filter ? `/upload?line=${encodeURIComponent(filter)}` : "/upload"}>
+                  <Camera className="h-3.5 w-3.5" /> Capture part
+                </Link>
+              </Button>
+              {!filter && (
+                <Button asChild size="sm" variant="outline" className="h-8">
+                  <Link href="/lines">
+                    <Brain className="h-3.5 w-3.5" /> Lines and models
+                  </Link>
+                </Button>
+              )}
+            </div>
+          }
         />
       ) : (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
@@ -50,8 +85,8 @@ export function ReviewQueue({ defaultLineId }: { defaultLineId?: string }) {
             <CardContent className="max-h-[640px] overflow-auto p-2">
               <ul className="space-y-1">
                 {queue.map((item) => {
-                  const id = `${item.line_id}/${item.serial}`;
-                  const active = current && id === `${current.line_id}/${current.serial}`;
+                  const id = reviewItemId(item);
+                  const active = current && id === reviewItemId(current);
                   return (
                     <li key={id}>
                       <button

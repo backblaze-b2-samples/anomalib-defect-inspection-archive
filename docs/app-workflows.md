@@ -10,7 +10,7 @@ capture reference images, train the first model, then capture production parts.
 - Chooses the line from a `Select`, types the part serial (e.g. `CNDL-000123`), and says whether the part is a reference image: a known-good part (`normal`), a known-defective part (`anomalous`) or a production part (default)
 - Drops one PNG or JPEG (up to 20 MB). The browser uploads it straight to `lines/<line>/<date>/images/<serial>.png` in B2 with a presigned PUT, with a progress bar
 - The API registers the part (a JPEG is stored as PNG) and, if the line has an active model, scores it: the "Last capture" card shows the image, its heatmap, the status badge and score vs threshold
-- A line without a model stores the image as `Unscored`; once a model is active, "Score N unscored parts" on the line page scores them
+- A line without a model stores the image as `Unscored`, and the result card links to the line's Models page ("Train the first model"). When the line's first model becomes ready it is activated and a server-side job scores every unscored part; later, "Score N unscored part(s)" on the line page starts the same job, whose progress ("Scoring part k of N") survives leaving or reloading the page
 - Without the ML extra, an engine notice says so and captures stay `Unscored`
 - A serial already used on the line is refused (409) before anything is uploaded
 - See: [Capture and Scoring](features/capture-and-scoring.md)

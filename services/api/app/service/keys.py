@@ -139,6 +139,14 @@ def date_from_prefix(prefix: str) -> str | None:
     return match.group(1) if match else None
 
 
+def line_of_record(key: str) -> str | None:
+    """The line id when ``key`` is a line record (``lines/<id>/line.json``)."""
+    if not key.startswith(ROOT) or not key.endswith("/line.json"):
+        return None
+    line_id = key[len(ROOT) : -len("/line.json")]
+    return line_id if _LINE_RE.fullmatch(line_id) else None
+
+
 def parse_image(key: str) -> tuple[str, str, str] | None:
     """(line_id, date, serial) for a capture key, or None for anything else."""
     match = _IMAGE_RE.fullmatch(key)

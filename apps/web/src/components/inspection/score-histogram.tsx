@@ -18,7 +18,15 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 /** Distribution of each part's latest score, with the active threshold noted. */
-export function ScoreHistogram({ scores, threshold }: { scores: number[]; threshold: number | null }) {
+export function ScoreHistogram({
+  scores,
+  threshold,
+  activeModel,
+}: {
+  scores: number[];
+  threshold: number | null;
+  activeModel: string | null | undefined;
+}) {
   const data = useMemo(
     () => binScores(scores).map((bin) => ({ score: bin.label, parts: bin.count })),
     [scores],
@@ -28,7 +36,11 @@ export function ScoreHistogram({ scores, threshold }: { scores: number[]; thresh
       <EmptyState
         icon={BarChart3}
         title="No scores yet"
-        description="Scores appear once the line has an active model."
+        description={
+          activeModel
+            ? `No part has been scored yet. Score the unscored parts, or capture a new one: ${activeModel} scores it.`
+            : "Scores appear once the line has an active model."
+        }
       />
     );
   }

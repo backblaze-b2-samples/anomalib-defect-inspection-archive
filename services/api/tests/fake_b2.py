@@ -30,6 +30,12 @@ class FakeStore:
         }
         return etag
 
+    def upload_file(self, key, path, content_type, on_bytes=None) -> None:
+        data = path.read_bytes()
+        if on_bytes:
+            on_bytes(len(data))
+        self.put_bytes(key, data, content_type, bulk=True)
+
     def get_bytes(self, key: str) -> bytes:
         if key not in self.objects:
             raise b2_store.ObjectNotFound(key)
@@ -82,6 +88,7 @@ class FakeStore:
                 key, json.dumps(payload, default=str).encode(), "application/json"
             ),
         )
+        monkeypatch.setattr(b2_store, "upload_file", self.upload_file)
         monkeypatch.setattr(b2_store, "get_bytes", self.get_bytes)
         monkeypatch.setattr(b2_store, "get_immutable", self.get_bytes)
         monkeypatch.setattr(b2_store, "get_json", lambda key: json.loads(self.get_bytes(key)))

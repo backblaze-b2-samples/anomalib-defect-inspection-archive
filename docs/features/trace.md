@@ -22,10 +22,11 @@ Given a part serial, return its full record: the original image, every heatmap, 
 
 ## Flow
 - Search lists `lines/<line>/parts/<serial-prefix>` on each line, then loads matching lines' state for status
+- The verdict history's "Reviewed score" resolves `score_ref` against the score history: score, model version and when it was scored (never the raw id)
 - The record page offers a verdict form (pre-selected with the latest verdict) and "Re-score" with a `Select` of ready versions; re-scoring adds a score row and a heatmap for that version and keeps the old ones
 
 ## Edge Cases
-- Unknown serial: empty match list; unknown part URL: 404
+- Unknown serial: empty match list (every line's part index is probed in parallel); while searching, the page says "Searching every line..." with a spinner; unknown part URL: 404, with a link back to Trace search
 - Serial with path syntax: 400 (never reaches a key)
 - Presigned links expire after `PRESIGN_VIEW_EXPIRY_SECONDS` (15 minutes); reloading the page signs new ones
 

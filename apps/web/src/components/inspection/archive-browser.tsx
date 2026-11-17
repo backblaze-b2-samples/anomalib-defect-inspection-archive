@@ -1,6 +1,5 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element -- presigned B2 URLs expire; next/image would cache them */
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { FolderArchive } from "lucide-react";
@@ -28,10 +27,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { EvidenceImage } from "@/components/inspection/evidence-image";
 import { LineSelect } from "@/components/inspection/line-select";
 import { tracePath } from "@/components/inspection/parts-table";
 import { ARCHIVE_KIND_LABELS, formatBytes, formatDateTime } from "@/lib/inspection-format";
-import { useArchive } from "@/lib/queries";
+import { useArchive, useLines } from "@/lib/queries";
 
 const LATEST = "__latest__";
 type View = "parts" | Exclude<ArchiveKind, "images" | "heatmaps">;
@@ -42,18 +42,26 @@ function serialOf(key: string): string {
 
 /** Scoped explorer for `lines/`: paired image/heatmap grid, plus record folders. */
 export function ArchiveBrowser({ defaultLineId }: { defaultLineId?: string }) {
-  const [lineId, setLineId] = useState<string | undefined>(defaultLineId);
+  const [chosenLine, setLineId] = useState<string | undefined>(defaultLineId);
+  const lines = useLines();
+  // With no line chosen, show the first line (the API's own default) and say
+  // so in the selector, instead of "Choose a line" above that line's parts.
+  const lineId = chosenLine ?? lines.data?.[0]?.line_id;
+  const linesSettled = !!chosenLine || lines.isSuccess || lines.isError;
   const [date, setDate] = useState<string>(LATEST);
   const [view, setView] = useState<View>("parts");
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const dateParam = date === LATEST ? undefined : date;
   const kind: ArchiveKind = view === "parts" ? "images" : view;
-  const page = useArchive({ lineId, date: dateParam, kind, cursor });
-  const heatmaps = useArchive({
-    lineId: page.data?.date ? lineId : undefined,
-    date: page.data?.date ?? undefined,
-    kind: "heatmaps",
-  });
+  const page = useArchive({ lineId, date: dateParam, kind, cursor }, { enabled: linesSettled });
+  const heatmaps = useArchive(
+    {
+      lineId: page.data?.date ? lineId : undefined,
+      date: page.data?.date ?? undefined,
+      kind: "heatmaps",
+    },
+    { enabled: linesSettled && !!page.data?.date },
+  );
   const resolvedLine = lineId;
 
   const heatmapsBySerial = useMemo(() => {
@@ -107,7 +115,7 @@ export function ArchiveBrowser({ defaultLineId }: { defaultLineId?: string }) {
       </div>
       {page.error ? (
         <ErrorState error={page.error} onRetry={() => page.refetch()} />
-      ) : page.isLoading ? (
+      ) : page.isLoading || !linesSettled ? (
         <Skeleton className="h-64" />
       ) : (page.data?.items.length ?? 0) === 0 ? (
         <EmptyState icon={FolderArchive} title="Nothing here yet" description="Capture parts on a line to fill its archive." />
@@ -120,9 +128,11 @@ export function ArchiveBrowser({ defaultLineId }: { defaultLineId?: string }) {
               <Card key={item.key}>
                 <CardContent className="space-y-2 p-3">
                   <div className="grid grid-cols-2 gap-2">
-                    <img src={item.url} alt={`Part ${serial}`} className="aspect-square w-full rounded border border-border object-contain" />
+                    <EvidenceImage src={item.url} alt={`Part ${serial}`} className="rounded" lazy />
                     {heat ? (
-                      <img src={heat.url} alt={`Heatmap of ${serial}`} className="aspect-square w-full rounded border border-border object-contain" />
+                      <EvidenceImage src={heat.url} alt={`Heatmap of ${serial}`} className="rounded" lazy />
+                    ) : heatmaps.isLoading ? (
+                      <div className="aspect-square w-full animate-pulse rounded border border-border bg-muted" aria-hidden />
                     ) : (
                       <div className="flex aspect-square items-center justify-center rounded border border-dashed border-border text-xs text-muted-foreground">
                         unscored

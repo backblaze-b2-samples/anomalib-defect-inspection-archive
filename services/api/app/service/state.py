@@ -39,13 +39,25 @@ def _parse_time(value) -> datetime:
     return value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
 
 
-def load_line_state(line_id: str, *, with_labels: bool = True) -> LineState:
+def _keys_under(prefix: str, listing: list[dict] | None) -> list[str]:
+    if listing is None:
+        return [o["key"] for o in b2_store.list_all(prefix)]
+    return [o["key"] for o in listing if o["key"].startswith(prefix)]
+
+
+def load_line_state(
+    line_id: str, *, with_labels: bool = True, listing: list[dict] | None = None
+) -> LineState:
+    """Read a line's parts, scores and labels.
+
+    ``listing`` is an already-read listing that covers the line (the dashboard
+    lists ``lines/`` once for every line); without it the three families are
+    listed here.
+    """
     state = LineState(line_id=line_id)
-    part_keys = [o["key"] for o in b2_store.list_all(keys.parts_prefix(line_id))]
-    score_keys = sorted(o["key"] for o in b2_store.list_all(keys.scores_prefix(line_id)))
-    label_keys = (
-        [o["key"] for o in b2_store.list_all(keys.labels_prefix(line_id))] if with_labels else []
-    )
+    part_keys = _keys_under(keys.parts_prefix(line_id), listing)
+    score_keys = sorted(_keys_under(keys.scores_prefix(line_id), listing))
+    label_keys = _keys_under(keys.labels_prefix(line_id), listing) if with_labels else []
     blobs = _read_all(part_keys + score_keys + label_keys)
     part_blobs = blobs[: len(part_keys)]
     score_blobs = blobs[len(part_keys) : len(part_keys) + len(score_keys)]
@@ -70,18 +82,31 @@ def load_line_state(line_id: str, *, with_labels: bool = True) -> LineState:
     return state
 
 
-def derive_status(scores: list[dict], labels: list[dict]) -> PartStatus:
-    """Latest verdict wins; else the latest score against its own threshold."""
+def derive_status(
+    scores: list[dict], labels: list[dict], reference: str | None = None
+) -> PartStatus:
+    """Latest verdict wins; else the latest score against its own threshold.
+
+    A scored reference image is already labelled (known-good or known-defective
+    at capture), so it reads as `reference` and never enters the review queue,
+    whatever its score; the score itself stays on the record and in the trace.
+    """
     if labels:
         return PartStatus.passed if labels[-1]["verdict"] == "pass" else PartStatus.failed
     if not scores:
         return PartStatus.unscored
+    if reference:
+        return PartStatus.reference
     latest = scores[-1]
     return PartStatus.in_review if latest["above_threshold"] else PartStatus.below_threshold
 
 
 def part_status(state: LineState, serial: str) -> PartStatus:
-    return derive_status(state.scores.get(serial, []), state.labels.get(serial, []))
+    return derive_status(
+        state.scores.get(serial, []),
+        state.labels.get(serial, []),
+        state.parts.get(serial, {}).get("reference"),
+    )
 
 
 def latest_score(state: LineState, serial: str) -> dict | None:

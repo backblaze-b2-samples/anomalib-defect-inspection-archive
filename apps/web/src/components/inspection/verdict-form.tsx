@@ -1,10 +1,11 @@
 "use client";
 
-import { useForm } from "react-hook-form";
+import { useEffect } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import type { Verdict } from "@anomalib-defect-inspection-archive/shared";
+import type { ReferenceLabel, Verdict } from "@anomalib-defect-inspection-archive/shared";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,10 +20,11 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import { loadOperator, saveOperator } from "@/lib/operator-preference";
 import { useRecordVerdict } from "@/lib/queries";
 
 const verdictSchema = z.object({
-  verdict: z.enum(["pass", "fail"]),
+  verdict: z.enum(["pass", "fail"], { message: "Choose Pass or Fail." }),
   operator: z.string().trim().min(1, "Who is recording this verdict?").max(64),
   note: z.string().max(500).optional(),
 });
@@ -34,22 +36,36 @@ interface VerdictFormProps {
   serial: string;
   /** Latest verdict, pre-selected when changing one. */
   current?: Verdict | null;
+  /** Set when the part was captured as a labelled reference image. */
+  reference?: ReferenceLabel | null;
   onDone?: () => void;
 }
 
+const REFERENCE_VERDICT: Record<ReferenceLabel, Verdict> = { normal: "pass", anomalous: "fail" };
+
 /** Record (or change) an operator verdict. Earlier verdicts stay in history. */
-export function VerdictForm({ lineId, serial, current, onDone }: VerdictFormProps) {
+export function VerdictForm({ lineId, serial, current, reference, onDone }: VerdictFormProps) {
   const mutation = useRecordVerdict(lineId, serial);
   const form = useForm<VerdictValues>({
     resolver: zodResolver(verdictSchema),
     defaultValues: { verdict: current ?? undefined, operator: "", note: "" },
   });
+  // The review queue mounts a fresh form per part: prefill the operator this
+  // browser last recorded with, after hydration (storage is client-only).
+  useEffect(() => {
+    const remembered = loadOperator();
+    if (remembered && !form.getValues("operator")) form.setValue("operator", remembered);
+  }, [form]);
+
+  const picked = useWatch({ control: form.control, name: "verdict" });
+  const contradictsReference = !!reference && !!picked && REFERENCE_VERDICT[reference] !== picked;
 
   const onSubmit = (values: VerdictValues) =>
     mutation.mutate(
       { verdict: values.verdict, operator: values.operator, note: values.note || null },
       {
         onSuccess: () => {
+          saveOperator(values.operator);
           toast.success(`Recorded ${values.verdict} for ${serial}`);
           form.reset({ verdict: values.verdict, operator: values.operator, note: "" });
           onDone?.();
@@ -61,6 +77,18 @@ export function VerdictForm({ lineId, serial, current, onDone }: VerdictFormProp
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        {reference && (
+          <p
+            role={contradictsReference ? "alert" : undefined}
+            className={`rounded-md border p-3 text-sm ${contradictsReference ? "border-destructive text-destructive" : "border-border text-muted-foreground"}`}
+          >
+            This part is a {reference === "normal" ? "known-good" : "known-defective"} reference image,
+            already labelled at capture. A verdict replaces that label in the next training run
+            {contradictsReference
+              ? `: recording ${picked} moves it to the ${picked === "pass" ? "normal training" : "anomalous evaluation"} images.`
+              : "."}
+          </p>
+        )}
         <FormField
           control={form.control}
           name="verdict"

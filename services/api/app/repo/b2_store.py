@@ -8,14 +8,22 @@ which every write here still invalidates so /files stays current.
 
 import json
 from collections import OrderedDict
+from collections.abc import Callable
+from pathlib import Path
 from threading import Lock
 from typing import Any
 
+from boto3.exceptions import S3UploadFailedError
+from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import BotoCoreError, ClientError
 
 from app.config import settings
 from app.repo.b2_client import get_presigned_url, get_s3_bulk_client, get_s3_client
 from app.repo.list_cache import invalidate as _invalidate_list_cache
+
+# Checkpoints are a few MB: one PUT, never a multipart upload, and no extra
+# transfer threads beside the training worker.
+_SINGLE_PUT = TransferConfig(multipart_threshold=256 * 1024 * 1024, use_threads=False)
 
 
 class ObjectNotFound(Exception):
@@ -40,6 +48,28 @@ def put_bytes(key: str, data: bytes, content_type: str, *, bulk: bool = False) -
         raise RuntimeError(f"B2 put failed for '{key}': {e}") from e
     _invalidate_list_cache()
     return str(response.get("ETag", "")).strip('"')
+
+
+def upload_file(
+    key: str, path: Path, content_type: str, on_bytes: Callable[[int], None] | None = None
+) -> None:
+    """Stream a local file to B2 on the long-timeout client, reporting progress.
+
+    ``on_bytes`` gets each increment of bytes sent (the S3 transfer callback),
+    so a slow checkpoint upload can show how far it has got.
+    """
+    try:
+        get_s3_bulk_client().upload_file(
+            str(path),
+            settings.b2_bucket_name,
+            key,
+            ExtraArgs={"ContentType": content_type},
+            Callback=on_bytes,
+            Config=_SINGLE_PUT,
+        )
+    except (ClientError, BotoCoreError, S3UploadFailedError) as e:
+        raise RuntimeError(f"B2 upload failed for '{key}': {e}") from e
+    _invalidate_list_cache()
 
 
 def put_json(key: str, payload: Any) -> str:

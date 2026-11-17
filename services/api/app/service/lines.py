@@ -4,6 +4,7 @@ A line is ``lines/<line-id>/line.json``. There is no delete: a line holds the
 evidence behind every inspection result recorded on it.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from threading import Lock
 
@@ -28,18 +29,26 @@ def get_line(line_id: str) -> Line:
         raise not_found(f"Line '{line_id}' not found") from None
 
 
+def _line_or_none(line_id: str) -> Line | None:
+    try:
+        return get_line(line_id)
+    except keys.InvalidKeyPart:
+        return None
+    except InspectionError as e:  # a folder without line.json is not a line
+        if e.status_code != 404:
+            raise
+        return None
+
+
 def list_lines() -> list[Line]:
-    out = []
-    for prefix in b2_store.list_prefixes(keys.ROOT):
-        line_id = prefix[len(keys.ROOT) :].rstrip("/")
-        try:
-            out.append(get_line(line_id))
-        except keys.InvalidKeyPart:
-            continue
-        except InspectionError as e:  # a folder without line.json is not a line
-            if e.status_code != 404:
-                raise
-    return sorted(out, key=lambda line: line.line_id)
+    line_ids = [prefix[len(keys.ROOT) :].rstrip("/") for prefix in b2_store.list_prefixes(keys.ROOT)]
+    if not line_ids:
+        return []
+    # One GET per line, in parallel: read one by one they cost a round trip each
+    # on every page that lists lines (and on every Trace search).
+    with ThreadPoolExecutor(max_workers=min(8, len(line_ids))) as pool:
+        found = [line for line in pool.map(_line_or_none, line_ids) if line is not None]
+    return sorted(found, key=lambda line: line.line_id)
 
 
 def create_line(req: CreateLineRequest) -> Line:
@@ -102,6 +111,11 @@ def line_detail(line_id: str, model_count: int, active_threshold: float | None) 
     counts = {status: 0 for status in PartStatus}
     for serial in st.parts:
         counts[state.part_status(st, serial)] += 1
+    normal_references = sum(
+        1
+        for serial, part in st.parts.items()
+        if part.get("reference") == "normal" and not st.labels.get(serial)
+    )
     return LineDetail(
         **line.model_dump(),
         part_count=len(st.parts),
@@ -110,5 +124,6 @@ def line_detail(line_id: str, model_count: int, active_threshold: float | None) 
         passed_count=counts[PartStatus.passed],
         failed_count=counts[PartStatus.failed],
         model_count=model_count,
+        normal_reference_count=normal_references,
         scores=summarize_scores(st, active_threshold),
     )

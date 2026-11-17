@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Search } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,7 +25,7 @@ import { useTraceSearch } from "@/lib/queries";
 export default function TraceSearchPage() {
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
-  const { data, isLoading, error, refetch } = useTraceSearch(query);
+  const { data, isLoading, isFetching, error, refetch } = useTraceSearch(query);
 
   return (
     <div className="space-y-8">
@@ -49,14 +49,25 @@ export default function TraceSearchPage() {
           placeholder="e.g. CNDL-000123"
           aria-label="Part serial"
         />
-        <Button type="submit" disabled={!draft.trim()}>
-          <Search className="h-4 w-4" /> Trace
+        <Button type="submit" disabled={!draft.trim() || (isFetching && draft.trim() === query)}>
+          {isFetching ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
+            <Search className="h-4 w-4" />
+          )}{" "}
+          {isFetching ? "Searching..." : "Trace"}
         </Button>
       </form>
       {!query ? null : error ? (
         <ErrorState error={error} onRetry={() => refetch()} />
       ) : isLoading ? (
-        <Skeleton className="h-32" />
+        <div className="space-y-3" role="status" aria-live="polite">
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            Searching every line for serials starting with &quot;{query}&quot;...
+          </p>
+          <Skeleton className="h-32" />
+        </div>
       ) : !data || data.length === 0 ? (
         <EmptyState icon={Search} title="No part found" description={`No serial starting with "${query}" on any line.`} />
       ) : (

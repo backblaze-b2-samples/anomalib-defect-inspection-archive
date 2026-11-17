@@ -274,3 +274,25 @@ describe("uploadFile — direct-to-B2 PUT failure", () => {
     ).toBe(false);
   });
 });
+
+import { getInspectionStats } from "./api-client";
+
+describe("getInspectionStats", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("gives up after its timeout with a retryable, named error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          }),
+      ),
+    );
+    const error = await getInspectionStats(20).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(408);
+    expect((error as ApiError).message).toMatch(/took longer than/);
+  });
+});

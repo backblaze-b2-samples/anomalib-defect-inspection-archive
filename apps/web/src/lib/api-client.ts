@@ -7,6 +7,7 @@ import type {
   InspectionPage,
   InspectionRecord,
   InspectionStats,
+  StatsProgress,
   Line,
   LineDetail,
   ModelVersion,
@@ -16,6 +17,7 @@ import type {
   PresignCaptureResponse,
   ReferenceLabel,
   ReviewItem,
+  ScoreJob,
   TraceMatch,
   TrainModelRequest,
   UpdateLineRequest,
@@ -498,6 +500,17 @@ export function scorePart(lineId: string, serial: string, modelVersion?: string 
   );
 }
 
+export function getScoreJob(lineId: string) {
+  return apiFetch<ScoreJob>(routePath(API_CLIENT_ROUTES.scoreJob.path, { line_id: lineId }));
+}
+
+export function startScoreUnscored(lineId: string) {
+  return sendJson<ScoreJob>(
+    API_CLIENT_ROUTES.scoreUnscoredStart,
+    routePath(API_CLIENT_ROUTES.scoreUnscoredStart.path, { line_id: lineId }),
+  );
+}
+
 export function recordVerdict(lineId: string, serial: string, body: VerdictRequest) {
   return sendJson<InspectionRecord>(
     API_CLIENT_ROUTES.partVerdict,
@@ -562,8 +575,31 @@ export function getArchive(query: ArchiveQuery) {
   );
 }
 
-export function getInspectionStats() {
-  return apiFetch<InspectionStats>(API_CLIENT_ROUTES.inspectionStats.path);
+/** The dashboard gives up on stats after this long and offers a retry. */
+export const INSPECTION_STATS_TIMEOUT_MS = 90_000;
+
+export async function getInspectionStats(timeoutMs = INSPECTION_STATS_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await apiFetch<InspectionStats>(API_CLIENT_ROUTES.inspectionStats.path, {
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new ApiError(
+        `Inspection stats took longer than ${Math.round(timeoutMs / 1000)}s. B2 may be slow or unreachable; try again.`,
+        408,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function getInspectionStatsProgress() {
+  return apiFetch<StatsProgress>(API_CLIENT_ROUTES.inspectionStatsProgress.path);
 }
 
 export function getEngine() {

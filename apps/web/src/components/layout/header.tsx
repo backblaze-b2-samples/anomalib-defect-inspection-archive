@@ -29,7 +29,7 @@ import { activeUploadLabel } from "@/lib/upload-status";
 // (e.g. "/" -> "Dashboard", "/design" -> "Design System").
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
-  "/upload": "Upload",
+  "/upload": "Capture",
   "/files": "Files",
   "/settings": "Settings",
   "/design": "Design System",

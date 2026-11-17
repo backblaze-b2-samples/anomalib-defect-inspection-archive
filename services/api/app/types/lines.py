@@ -1,10 +1,15 @@
 from datetime import datetime
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 from app.types.base import ResponseModel
 
 LINE_ID_PATTERN = r"^[a-z0-9][a-z0-9-]{1,40}$"
+# A PatchCore run needs 2 normal training images plus 1 held-out normal that
+# sets the threshold; held-out images only ever come from known-good references.
+MIN_TRAIN_IMAGES = 2
+MIN_NORMAL_REFERENCES = MIN_TRAIN_IMAGES + 1
 
 
 class Line(ResponseModel):
@@ -55,4 +60,37 @@ class LineDetail(Line):
     passed_count: int
     failed_count: int
     model_count: int
+    normal_reference_count: int = Field(
+        description="Known-good reference images without a verdict: the pool the "
+        "held-out threshold image comes from."
+    )
+    min_normal_references: int = Field(
+        default=MIN_NORMAL_REFERENCES,
+        description="Known-good references a first training run needs.",
+    )
     scores: ScoreSummary
+
+
+class ScoreJobStatus(StrEnum):
+    idle = "idle"
+    queued = "queued"
+    running = "running"
+    done = "done"
+    failed = "failed"
+
+
+class ScoreJob(ResponseModel):
+    """Server-side run that scores every unscored part of a line.
+
+    It runs in the API process, so leaving or reloading the page does not stop it.
+    """
+
+    line_id: str
+    status: ScoreJobStatus
+    model_version: str | None = None
+    total: int | None = Field(default=None, description="Parts to score; null until counted.")
+    scored: int = 0
+    failed: int = 0
+    error: str | None = Field(default=None, description="Last per-part error, if any.")
+    started_at: datetime | None = None
+    finished_at: datetime | None = None

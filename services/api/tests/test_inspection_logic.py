@@ -72,6 +72,25 @@ def test_review_queue_selects_unadjudicated_above_threshold_oldest_first():
     assert review.select_for_review(st) == ["old", "mid", "new"]
 
 
+def test_reference_parts_are_labelled_not_reviewed():
+    # A known-defective reference often scores exactly AT the F1-max threshold;
+    # it is already labelled, so it must not wait in the operator queue.
+    assert state.derive_status([], [], "anomalous") == PartStatus.unscored
+    assert state.derive_status([_row("r", 1.0)], [], "anomalous") == PartStatus.reference
+    assert state.derive_status([_row("r", 0.1)], [], "normal") == PartStatus.reference
+    # An explicit verdict still wins.
+    assert state.derive_status([_row("r", 1.0)], [{"verdict": "fail"}], "anomalous") == (
+        PartStatus.failed
+    )
+    st = _state([("ref-bad", "anomalous"), ("ref-good", "normal"), ("prod", None)])
+    st.scores = {
+        "ref-bad": [_row("ref-bad", 1.0)],
+        "ref-good": [_row("ref-good", 2.0)],
+        "prod": [_row("prod", 2.0)],
+    }
+    assert review.select_for_review(st) == ["prod"]
+
+
 def test_training_set_pass_trains_fail_evals_and_holds_out_references():
     parts = [(f"r{i}", "normal") for i in range(5)] + [("ra", "anomalous"), ("p", None), ("f", None), ("u", None)]
     st = _state(parts)

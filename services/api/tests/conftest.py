@@ -65,13 +65,13 @@ def reset_shared_module_state():
     """Reset the remaining shared module state (B2 connectivity cache and the
     in-process metrics counters) so absolute-value assertions can't become
     order-dependent across the suite."""
-    from app.repo import b2_client
+    from app.repo import b2_client, b2_health
     from app.runtime import metrics
 
     cached_get_s3_client = b2_client.get_s3_client
     cached_get_s3_client.cache_clear()
     b2_client.get_s3_bulk_client.cache_clear()
-    b2_client._health_cache = None
+    b2_health._health_cache = None
     with metrics._lock:
         metrics._request_count.clear()
         metrics._request_duration_sum.clear()

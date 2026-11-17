@@ -92,14 +92,21 @@ def capture_part(line_id: str, req: CapturePartRequest) -> InspectionRecord:
         "original_content_type": meta["content_type"],
     }
     b2_store.put_json(keys.part_index(line_id, req.serial), part)
+    rows: list[dict] = []
     if req.score_now and line.active_model_version:
         try:
-            scoring.score_parts(line_id, [part], line.active_model_version)
+            rows = scoring.score_parts(line_id, [part], line.active_model_version)
         except InspectionError as e:
             logger.warning("Captured %s unscored: %s", req.serial, e.detail)
         except anomaly_engine.EngineUnavailable:
             logger.warning("Captured %s unscored: ML extra not installed", req.serial)
-    return get_record(line_id, req.serial)
+    # The serial is new (checked above), so it has no verdicts and no scores
+    # but the ones just written: build the record from them instead of
+    # re-listing and re-reading the whole line after every capture.
+    st = state.LineState(line_id=line_id, parts={req.serial: part})
+    if rows:
+        st.scores[req.serial] = rows
+    return state.build_record(st, req.serial)
 
 
 def get_record(line_id: str, serial: str) -> InspectionRecord:

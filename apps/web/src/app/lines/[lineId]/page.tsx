@@ -4,9 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { toast } from "sonner";
-import { Archive, Brain, Camera, ClipboardCheck, ListChecks } from "lucide-react";
+import { Archive, Brain, Camera, ClipboardCheck, ListChecks, Sparkles } from "lucide-react";
 import type { PartStatus } from "@anomalib-defect-inspection-archive/shared";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -20,11 +21,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EngineNotice } from "@/components/inspection/engine-notice";
+import { JobProgress } from "@/components/inspection/job-progress";
 import { LineFormDialog } from "@/components/inspection/line-form";
 import { PartsTable } from "@/components/inspection/parts-table";
 import { ScoreHistogram } from "@/components/inspection/score-histogram";
-import { PART_STATUSES, PART_STATUS_LABELS, todayUtc } from "@/lib/inspection-format";
-import { useLineDetail, useParts, useScorePart } from "@/lib/queries";
+import { TrainFirstModelLink } from "@/components/inspection/train-first-model-link";
+import { PART_STATUSES, PART_STATUS_LABELS, scoreJobProgress, todayUtc } from "@/lib/inspection-format";
+import {
+  isScoreJobActive,
+  useLineDetail,
+  useParts,
+  useScoreJob,
+  useStartScoreUnscored,
+} from "@/lib/queries";
 
 const ANY = "any";
 
@@ -38,30 +47,23 @@ export default function LineDetailPage() {
     date: todayOnly ? todayUtc() : undefined,
     limit: 100,
   });
-  const unscored = useParts(lineId, { status: "unscored", limit: 200 });
-  const score = useScorePart(lineId);
-  const [scoring, setScoring] = useState(false);
+  // Bulk scoring runs as a server-side job: leaving or reloading this page
+  // does not stop it, and its progress is read back from the API.
+  const job = useScoreJob(lineId);
+  const startScoring = useStartScoreUnscored(lineId);
+  const scoring = isScoreJobActive(job.data) || startScoring.isPending;
 
-  const scoreUnscored = async () => {
-    const serials = (unscored.data?.items ?? []).map((item) => item.serial);
-    setScoring(true);
-    let done = 0;
-    for (const serial of serials) {
-      try {
-        await score.mutateAsync({ serial });
-        done += 1;
-      } catch (error) {
-        toast.error(`${serial}: ${(error as Error).message}`);
-        break;
-      }
-    }
-    setScoring(false);
-    if (done) toast.success(`Scored ${done} part(s)`);
-  };
+  const scoreUnscored = () =>
+    startScoring.mutate(undefined, {
+      onError: (error) => toast.error(error.message),
+    });
 
   if (detail.error) return <ErrorState error={detail.error} onRetry={() => detail.refetch()} />;
   const line = detail.data;
   const base = `/lines/${encodeURIComponent(lineId)}`;
+  const unscoredCount = line?.unscored_count ?? 0;
+  const lastJob = job.data;
+  const progress = lastJob && isScoreJobActive(lastJob) ? scoreJobProgress(lastJob) : null;
 
   return (
     <div className="space-y-8">
@@ -71,7 +73,16 @@ export default function LineDetailPage() {
           <p className="mt-1.5 text-sm text-muted-foreground">
             {lineId}
             {line?.description ? ` · ${line.description}` : ""} · active model{" "}
-            <strong className="text-foreground">{line?.active_model_version ?? "none yet"}</strong>
+            {line ? (
+              <strong className="text-foreground">{line.active_model_version ?? "none yet"}</strong>
+            ) : (
+              // Unknown until the line is read: never claim "none yet" early.
+              <span
+                role="status"
+                aria-label="Loading active model"
+                className="inline-block h-3.5 w-10 animate-pulse rounded-md bg-accent align-middle"
+              />
+            )}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -99,6 +110,63 @@ export default function LineDetailPage() {
         </div>
       </div>
       <EngineNotice />
+      {line && !line.active_model_version && (
+        <Alert>
+          <Brain />
+          <AlertTitle>This line has no model yet</AlertTitle>
+          <AlertDescription>
+            <span>
+              Captured parts are stored in B2 and stay <strong>Unscored</strong> until a model is
+              trained. Train the first PatchCore version from the line&apos;s reference images; it
+              becomes active and scores the waiting parts when it finishes.
+            </span>
+            <div className="mt-2">
+              <TrainFirstModelLink lineId={lineId} />
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+      {progress && lastJob ? (
+        <JobProgress
+          label={progress.label}
+          percent={progress.percent}
+          startedAt={lastJob.started_at}
+          hint="Runs on the API server: you can leave or reload this page. Counts update when it finishes."
+        />
+      ) : (
+        line?.active_model_version &&
+        unscoredCount > 0 &&
+        // Just finished: the counts are being re-read, so do not re-offer the job.
+        !(lastJob?.status === "done" && detail.isFetching) &&
+        // The job status is being (re-)read, e.g. right after the first model
+        // went live and the server queued its auto-score job: wait for it
+        // rather than offer a manual button for a job that already exists.
+        !job.isFetching && (
+          <Alert>
+            <Sparkles />
+            <AlertTitle>
+              {unscoredCount} part(s) have no score from {line.active_model_version} yet
+            </AlertTitle>
+            <AlertDescription>
+              <span>
+                They were captured before the line had an active model, or their scoring failed.
+                Score them now; the job runs on the server.
+              </span>
+              <Button size="sm" className="mt-2 h-8" onClick={scoreUnscored} disabled={scoring}>
+                {startScoring.isPending ? "Queuing..." : `Score ${unscoredCount} unscored part(s)`}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )
+      )}
+      {lastJob?.status === "done" && lastJob.failed > 0 && (
+        <p className="text-sm text-destructive">
+          Last scoring run: {lastJob.scored} scored, {lastJob.failed} failed ({lastJob.error}).
+        </p>
+      )}
+      {lastJob?.status === "failed" && (
+        <p className="text-sm text-destructive">Last scoring run failed: {lastJob.error}</p>
+      )}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {[
           ["Parts", line?.part_count],
@@ -123,11 +191,12 @@ export default function LineDetailPage() {
             <CardTitle className="card-title">Score distribution</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 p-5">
-            {line && <ScoreHistogram scores={line.scores.recent_scores} threshold={line.scores.threshold} />}
-            {(unscored.data?.items.length ?? 0) > 0 && line?.active_model_version && (
-              <Button size="sm" variant="outline" onClick={scoreUnscored} disabled={scoring}>
-                {scoring ? "Scoring..." : `Score ${unscored.data?.items.length} unscored part(s)`}
-              </Button>
+            {line && (
+              <ScoreHistogram
+                scores={line.scores.recent_scores}
+                threshold={line.scores.threshold}
+                activeModel={line.active_model_version}
+              />
             )}
           </CardContent>
         </Card>
@@ -136,7 +205,7 @@ export default function LineDetailPage() {
             <CardTitle className="card-title">{todayOnly ? "Today's parts" : "All parts"}</CardTitle>
             <div className="flex gap-2">
               <Select value={todayOnly ? "today" : "all"} onValueChange={(v) => setTodayOnly(v === "today")}>
-                <SelectTrigger className="h-8 w-32" aria-label="Date range">
+                <SelectTrigger className="h-8 w-36" aria-label="Date range">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

@@ -199,12 +199,14 @@ still in step.
 | `GET /files/stats/activity` | `DailyUploadCount[]` | `uploadActivity` |
 | `GET /health` | `HealthStatus` | `health` |
 | `GET /inspection/stats` | `InspectionStats` | `inspectionStats` |
+| `GET /inspection/stats/progress` | `StatsProgress` | `inspectionStatsProgress` |
 | `GET /lines` | `Line[]` | `lines` |
 | `GET /lines/{line_id}` | `LineDetail` | `lineDetail` |
 | `GET /lines/{line_id}/models` | `ModelVersion[]` | `models` |
 | `GET /lines/{line_id}/models/{version}` | `ModelVersionDetail` | `modelDetail` |
 | `GET /lines/{line_id}/parts` | `InspectionPage` | `parts` |
 | `GET /lines/{line_id}/parts/{serial}` | `PartTrace` | `partTrace` |
+| `GET /lines/{line_id}/score-unscored` | `ScoreJob` | `scoreJob` |
 | `GET /metrics` | — | _server-only_ |
 | `GET /review-queue` | `ReviewItem[]` | `reviewQueue` |
 | `GET /trace` | `TraceMatch[]` | `traceSearch` |
@@ -215,6 +217,7 @@ still in step.
 | `POST /lines/{line_id}/parts` | `InspectionRecord` | `partCapture` |
 | `POST /lines/{line_id}/parts/{serial}/score` | `InspectionRecord` | `partScore` |
 | `POST /lines/{line_id}/parts/presign` | `PresignCaptureResponse` | `partPresign` |
+| `POST /lines/{line_id}/score-unscored` | `ScoreJob` | `scoreUnscoredStart` |
 | `POST /upload/presign` | `PresignUploadResponse` | `uploadPresign` |
 | `POST /upload/verify` | `FileUploadResponse` | `uploadVerify` |
 | `PUT /lines/{line_id}/parts/{serial}/verdict` | `InspectionRecord` | `partVerdict` |

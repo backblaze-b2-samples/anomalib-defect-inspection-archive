@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -45,6 +46,7 @@ type LineValues = z.infer<typeof lineSchema>;
 export function LineFormDialog({ line }: { line?: Line }) {
   const [open, setOpen] = useState(false);
   const editing = !!line;
+  const router = useRouter();
   const create = useCreateLine();
   const update = useUpdateLine(line?.line_id ?? "");
   const form = useForm<LineValues>({
@@ -63,7 +65,11 @@ export function LineFormDialog({ line }: { line?: Line }) {
       onSuccess: () => {
         toast.success(editing ? "Line updated" : `Line ${values.line_id} created`);
         setOpen(false);
-        if (!editing) form.reset();
+        if (!editing) {
+          form.reset();
+          // Next step on a new line is capturing its parts: open it.
+          router.push(`/lines/${encodeURIComponent(values.line_id)}`);
+        }
       },
       onError: (error: Error) => toast.error(error.message),
     };

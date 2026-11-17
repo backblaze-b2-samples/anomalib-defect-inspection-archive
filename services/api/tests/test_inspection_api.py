@@ -12,7 +12,7 @@ import pytest
 from PIL import Image
 
 from app.repo import anomaly_engine
-from app.service import keys, scoring, train_runner
+from app.service import keys, lines, score_jobs, scoring, train_runner
 from tests.fake_b2 import FakeScorer, FakeStore, png_bytes
 
 LINE = "line-01"
@@ -21,6 +21,7 @@ LINE = "line-01"
 @pytest.fixture
 def store(monkeypatch, tmp_path):
     train_runner._reset_for_tests()
+    score_jobs._reset_for_tests()
     return FakeStore().install(monkeypatch, tmp_path)
 
 
@@ -251,3 +252,233 @@ def test_no_inspection_route_deletes_anything():
         path = getattr(route, "path", "")
         if "DELETE" in methods:
             assert path.startswith("/files"), f"unexpected delete route {path}"
+
+
+async def test_score_unscored_runs_server_side_and_reports_progress(client, store, ml):
+    await _line(client, active="v1", store=store)
+    for i in range(3):
+        await _capture(client, store, f"S-{i}", 20 + i, score_now=False)
+    idle = (await client.get(f"/lines/{LINE}/score-unscored")).json()
+    assert idle["status"] == "idle"
+    r = await client.post(f"/lines/{LINE}/score-unscored")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] in ("queued", "running", "done")
+    assert train_runner.wait_idle(10)
+    job = (await client.get(f"/lines/{LINE}/score-unscored")).json()
+    assert (job["status"], job["total"], job["scored"], job["failed"]) == ("done", 3, 3, 0)
+    assert job["model_version"] == "v1"
+    detail = (await client.get(f"/lines/{LINE}")).json()
+    assert detail["unscored_count"] == 0
+
+
+async def test_score_unscored_without_active_model_is_409(client, store, ml):
+    await _line(client)
+    await _capture(client, store, "S-1", 20)
+    assert (await client.post(f"/lines/{LINE}/score-unscored")).status_code == 409
+
+
+async def test_first_ready_model_activates_and_scores_pending_parts(client, store, monkeypatch, ml):
+    from app.service import model_versions, training
+
+    class FakeTrained:
+        device = "cpu"
+
+        def score(self, path):
+            return FakeScorer().score(path)
+
+        def save_checkpoint(self, path, meta):
+            path.write_bytes(b"ckpt")
+
+    monkeypatch.setattr(training, "train_patchcore", lambda *a, **k: FakeTrained())
+    stages, progress, seen_ready = [], [], []
+    real_save = model_versions.save
+
+    def spy_save(record):
+        stages.append(record.stage)
+        progress.append(record.progress)
+        if record.status == "ready":
+            # By the time a client can read `ready`, the line already names it
+            # active and its score job exists: no window where the Models page
+            # offers "Activate" on it or the line offers a manual score button.
+            line = lines.get_line(LINE)
+            seen_ready.append((line.active_model_version, score_jobs.get(LINE).status))
+        real_save(record)
+
+    monkeypatch.setattr(model_versions, "save", spy_save)
+    await _line(client)
+    for i in range(5):
+        await _capture(client, store, f"R-{i}", 20 + i, reference="normal")
+    await _capture(client, store, "P-1", 30)  # production part, unscored (no model yet)
+    r = await client.post(f"/lines/{LINE}/models", json={})
+    assert r.status_code == 200, r.text
+    assert train_runner.wait_idle(10)
+    model = (await client.get(f"/lines/{LINE}/models/v1")).json()
+    assert model["status"] == "ready", model["error"]
+    assert model["stage"] is None
+    # The run reports each stage while it works.
+    assert {"Reading images from B2", "Training PatchCore", "Evaluating"} <= set(stages)
+    # ...with a determinate share of the stages done, rising, cleared at the end.
+    running = [p for p in progress if p is not None]
+    assert running == sorted(running) and running[0] < running[-1] < 1
+    assert model["progress"] is None
+    assert seen_ready == [("v1", "queued")]
+    listed = (await client.get(f"/lines/{LINE}/models")).json()
+    assert [(m["version"], m["active"]) for m in listed] == [("v1", True)]
+    detail = (await client.get(f"/lines/{LINE}")).json()
+    assert detail["active_model_version"] == "v1"
+    assert detail["unscored_count"] == 0
+    job = (await client.get(f"/lines/{LINE}/score-unscored")).json()
+    assert job["status"] == "done" and job["scored"] == 6
+
+
+async def test_model_list_marks_only_the_active_version(client, store):
+    await _line(client, active="v1", store=store)
+    _ready_model(store, "v2")
+    listed = (await client.get(f"/lines/{LINE}/models")).json()
+    assert [(m["version"], m["active"]) for m in listed] == [("v2", False), ("v1", True)]
+    r = await client.post(f"/lines/{LINE}/models/v2/activate")
+    assert r.status_code == 200, r.text
+    listed = (await client.get(f"/lines/{LINE}/models")).json()
+    assert [(m["version"], m["active"]) for m in listed] == [("v2", True), ("v1", False)]
+    assert (await client.get(f"/lines/{LINE}/models/v2")).json()["active"] is True
+    # `active` is derived from the line, never persisted in version.json.
+    raw = json.loads(store.objects[keys.model_file(LINE, "v2", "version.json")]["data"])
+    assert "active" not in raw
+
+
+async def test_scored_reference_stays_out_of_the_review_queue(client, store, ml):
+    await _line(client, active="v1", store=store)
+    ref = await _capture(client, store, "R-BAD", 150, reference="anomalous")
+    assert ref.json()["status"] == "reference"
+    assert ref.json()["score"] is not None
+    prod = await _capture(client, store, "P-BAD", 150)
+    assert prod.json()["status"] == "in_review"
+    queue = (await client.get("/review-queue", params={"line_id": LINE})).json()
+    assert [item["serial"] for item in queue] == ["P-BAD"]
+    detail = (await client.get(f"/lines/{LINE}")).json()
+    assert detail["in_review_count"] == 1
+    assert (await client.get("/inspection/stats")).json()["review_backlog"] == 1
+
+
+def _count_lists(store, monkeypatch) -> list[str]:
+    """Record the prefix of every list call the services make from now on."""
+    from app.repo import b2_store
+
+    calls: list[str] = []
+    real = store.list_page
+
+    def spy(prefix, **kwargs):
+        calls.append(prefix)
+        return real(prefix, **kwargs)
+
+    monkeypatch.setattr(b2_store, "list_page", spy)
+    return calls
+
+
+async def test_stats_read_one_listing_and_report_line_progress(client, store, ml, monkeypatch):
+    await _line(client, active="v1", store=store)
+    r = await client.post("/lines", json={"line_id": "line-02", "name": "Line 2"})
+    assert r.status_code == 200, r.text
+    await _capture(client, store, "S-1", 200)
+    calls = _count_lists(store, monkeypatch)
+    stats = (await client.get("/inspection/stats")).json()
+    assert stats["parts_inspected"] == 1 and stats["review_backlog"] == 1
+    assert stats["model_versions"] == 1
+    # One paginated listing of lines/ answers everything: no per-line listings,
+    # which cost a B2 round trip each per line and made the dashboard crawl.
+    assert set(calls) == {"lines/"}
+    progress = (await client.get("/inspection/stats/progress")).json()
+    assert progress == {"running": False, "lines_done": 2, "lines_total": 2}
+
+
+async def test_line_detail_counts_known_good_references(client, store):
+    await _line(client)
+    await _capture(client, store, "R-1", 20, reference="normal")
+    await _capture(client, store, "A-1", 200, reference="anomalous")
+    await _capture(client, store, "P-1", 30)
+    detail = (await client.get(f"/lines/{LINE}")).json()
+    assert detail["normal_reference_count"] == 1
+    assert detail["min_normal_references"] == 3
+
+
+async def test_capture_without_model_does_not_reread_the_line(client, store, monkeypatch):
+    await _line(client)
+    data = png_bytes(20)
+    r = await client.post(
+        f"/lines/{LINE}/parts/presign",
+        json={"serial": "R-1", "content_type": "image/png", "size_bytes": len(data)},
+    )
+    key = r.json()["image_key"]
+    store.put_bytes(key, data, "image/png")
+    calls = _count_lists(store, monkeypatch)
+    r = await client.post(
+        f"/lines/{LINE}/parts", json={"serial": "R-1", "image_key": key, "reference": "normal"}
+    )
+    assert r.status_code == 200, r.text
+    assert (r.json()["status"], r.json()["reference"]) == ("unscored", "normal")
+    # A brand-new serial with nothing to score has no scores or verdicts to
+    # read back: registering it is a few small writes, not three listings.
+    assert calls == []
+
+
+async def test_score_job_scores_production_parts_before_references(client, store, ml, monkeypatch):
+    await _line(client, active="v1", store=store)
+    await _capture(client, store, "R-1", 20, reference="normal", score_now=False)
+    await _capture(client, store, "P-1", 30, score_now=False)
+    order: list[str] = []
+    real = scoring.score_parts
+
+    def spy(line_id, parts, version):
+        order.extend(p["serial"] for p in parts)
+        return real(line_id, parts, version)
+
+    monkeypatch.setattr(scoring, "score_parts", spy)
+    assert (await client.post(f"/lines/{LINE}/score-unscored")).status_code == 200
+    assert train_runner.wait_idle(10)
+    assert order == ["P-1", "R-1"]
+
+
+async def test_training_reports_sub_progress_inside_long_stages(client, store, monkeypatch, ml):
+    from app.repo import b2_store
+    from app.service import model_versions, training
+
+    class FakeTrained:
+        device = "cpu"
+
+        def score(self, path):
+            return FakeScorer().score(path)
+
+        def save_checkpoint(self, path, meta):
+            path.write_bytes(b"x" * 1000)
+
+    uploads = []
+
+    def fake_upload(key, path, content_type, on_bytes=None):
+        data = path.read_bytes()
+        for chunk in (400, 600):  # the S3 transfer callback reports increments
+            on_bytes(chunk)
+        uploads.append(key)
+        store.put_bytes(key, data, content_type)
+
+    monkeypatch.setattr(training, "train_patchcore", lambda *a, **k: FakeTrained())
+    monkeypatch.setattr(b2_store, "upload_file", fake_upload)
+    seen = []
+    real_save = model_versions.save
+    monkeypatch.setattr(
+        model_versions, "save", lambda r: (seen.append((r.stage, r.progress)), real_save(r))
+    )
+    await _line(client)
+    for i in range(5):
+        await _capture(client, store, f"R-{i}", 20 + i, reference="normal")
+    assert (await client.post(f"/lines/{LINE}/models", json={})).status_code == 200
+    assert train_runner.wait_idle(10)
+    assert (await client.get(f"/lines/{LINE}/models/v1")).json()["status"] == "ready"
+    assert uploads == [keys.model_file(LINE, "v1", "model.ckpt")]
+    stages = [s for s, _ in seen if s]
+    assert any(s.startswith("Reading images from B2 (") and "of 5" in s for s in stages)
+    assert any(s.startswith("Writing checkpoint to B2 (") for s in stages)
+    running = [p for _, p in seen if p is not None]
+    assert running == sorted(running)
+    # Sub-progress moves the bar inside a stage, not only at stage boundaries.
+    per_stage = 1 / len(training.STAGES)
+    assert any(abs(p / per_stage - round(p / per_stage)) > 1e-6 for p in running)

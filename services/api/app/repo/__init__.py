@@ -1,5 +1,4 @@
 from app.repo.b2_client import (
-    check_connectivity,
     delete_file,
     get_file_metadata,
     get_presigned_url,
@@ -8,6 +7,7 @@ from app.repo.b2_client import (
     prewarm_listing,
     upload_file,
 )
+from app.repo.b2_health import check_connectivity
 from app.repo.b2_object import get_object_bytes
 from app.repo.b2_upload import (
     generate_presigned_upload,

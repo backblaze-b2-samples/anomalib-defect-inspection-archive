@@ -23,10 +23,15 @@ interface LineSelectProps {
 /** Selector of existing lines: line ids are never typed free-hand. */
 export function LineSelect({ value, onChange, allowAll, id, placeholder }: LineSelectProps) {
   const { data: lines, isLoading } = useLines();
+  // A line preselected from the URL shows at once, by id, while the list
+  // loads (Radix only renders an item's label once that item exists).
+  const pending = isLoading && !!value && value !== ALL_LINES ? value : undefined;
   return (
     <Select value={value} onValueChange={onChange} disabled={isLoading}>
-      <SelectTrigger id={id} className="w-full sm:w-64" aria-label="Line">
-        <SelectValue placeholder={isLoading ? "Loading lines..." : (placeholder ?? "Choose a line")} />
+      <SelectTrigger id={id} className="w-full sm:w-80" aria-label="Line">
+        <SelectValue placeholder={isLoading ? "Loading lines..." : (placeholder ?? "Choose a line")}>
+          {pending}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         {allowAll && <SelectItem value={ALL_LINES}>All lines</SelectItem>}

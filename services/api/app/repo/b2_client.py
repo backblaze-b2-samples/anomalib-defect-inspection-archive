@@ -1,9 +1,7 @@
 import functools
 import io
 import mimetypes
-import time
 from datetime import UTC, datetime
-from threading import Lock
 from urllib.parse import quote
 
 import boto3
@@ -73,30 +71,6 @@ def get_s3_bulk_client():
     for /health and listings. Used only for checkpoint transfers.
     """
     return _build_client(read_timeout=300, attempts=5)
-
-
-# Cache the B2 connectivity result briefly so uptime monitors polling /health
-# every few seconds don't issue a B2 head_bucket on every call.
-_HEALTH_TTL_SECONDS = 5.0
-_health_cache: tuple[float, bool] | None = None
-_health_lock = Lock()
-
-
-def check_connectivity() -> bool:
-    global _health_cache
-    now = time.monotonic()
-    with _health_lock:
-        if _health_cache is not None and now - _health_cache[0] < _HEALTH_TTL_SECONDS:
-            return _health_cache[1]
-    try:
-        client = get_s3_client()
-        client.head_bucket(Bucket=settings.b2_bucket_name)
-        ok = True
-    except Exception:
-        ok = False
-    with _health_lock:
-        _health_cache = (time.monotonic(), ok)
-    return ok
 
 
 def upload_file(

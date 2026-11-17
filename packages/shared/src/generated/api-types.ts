@@ -221,8 +221,15 @@ export interface LineDetail {
   failed_count: number;
   in_review_count: number;
   line_id: string;
+  /** Known-good references a first training run needs. */
+  min_normal_references: number;
   model_count: number;
   name: string;
+  /**
+   * Known-good reference images without a verdict: the pool the held-out
+   * threshold image comes from.
+   */
+  normal_reference_count: number;
   part_count: number;
   passed_count: number;
   scores: ScoreSummary;
@@ -234,6 +241,11 @@ export type ModelStatus = "queued" | "training" | "ready" | "failed" | "interrup
 
 /** One trained (or training) PatchCore model version of a line. */
 export interface ModelVersion {
+  /**
+   * True when this is the line's active version (derived from the line,
+   * never stored in version.json).
+   */
+  active: boolean;
   anomalib_version: string | null;
   backbone: string;
   coreset_ratio: number;
@@ -248,7 +260,11 @@ export interface ModelVersion {
   note: string | null;
   /** Line's active version when this one was trained. */
   parent_version: string | null;
+  /** Share of the training stages already done (0-1); null once finished. */
+  progress: number | null;
   source: TrainingSource;
+  /** What a training run is doing right now; null once it has finished. */
+  stage: string | null;
   started_at: string | null;
   status: ModelStatus;
   threshold: number | null;
@@ -259,6 +275,11 @@ export interface ModelVersion {
 }
 
 export interface ModelVersionDetail {
+  /**
+   * True when this is the line's active version (derived from the line,
+   * never stored in version.json).
+   */
+  active: boolean;
   anomalib_version: string | null;
   backbone: string;
   checkpoint_url: string | null;
@@ -277,7 +298,11 @@ export interface ModelVersionDetail {
   note: string | null;
   /** Line's active version when this one was trained. */
   parent_version: string | null;
+  /** Share of the training stages already done (0-1); null once finished. */
+  progress: number | null;
   source: TrainingSource;
+  /** What a training run is doing right now; null once it has finished. */
+  stage: string | null;
   started_at: string | null;
   status: ModelStatus;
   threshold: number | null;
@@ -288,7 +313,7 @@ export interface ModelVersionDetail {
   version: string;
 }
 
-export type PartStatus = "unscored" | "below_threshold" | "in_review" | "passed" | "failed";
+export type PartStatus = "unscored" | "below_threshold" | "in_review" | "passed" | "failed" | "reference";
 
 export interface PartTrace {
   capture_date: string;
@@ -388,6 +413,26 @@ export interface ScoreEntry {
   threshold: number;
 }
 
+/**
+ * Server-side run that scores every unscored part of a line. It runs in
+ * the API process, so leaving or reloading the page does not stop it.
+ */
+export interface ScoreJob {
+  /** Last per-part error, if any. */
+  error: string | null;
+  failed: number;
+  finished_at: string | null;
+  line_id: string;
+  model_version: string | null;
+  scored: number;
+  started_at: string | null;
+  status: ScoreJobStatus;
+  /** Parts to score; null until counted. */
+  total: number | null;
+}
+
+export type ScoreJobStatus = "idle" | "queued" | "running" | "done" | "failed";
+
 export interface ScorePartRequest {
   /** Defaults to the line's active model version. */
   model_version?: string | null;
@@ -404,6 +449,13 @@ export interface ScoreSummary {
   scored_count: number;
   /** Threshold of the active model version, when one is ready. */
   threshold: number | null;
+}
+
+/** How far a dashboard stats computation has got, for a determinate wait. */
+export interface StatsProgress {
+  lines_done: number;
+  lines_total: number;
+  running: boolean;
 }
 
 export interface TraceMatch {

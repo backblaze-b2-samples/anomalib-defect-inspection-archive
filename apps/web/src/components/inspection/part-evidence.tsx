@@ -1,5 +1,6 @@
-/* eslint-disable @next/next/no-img-element -- presigned B2 URLs expire; next/image would cache them */
 import { ImageOff } from "lucide-react";
+
+import { EvidenceImage } from "@/components/inspection/evidence-image";
 
 interface PartEvidenceProps {
   serial: string;
@@ -13,20 +14,12 @@ export function PartEvidence({ serial, imageUrl, heatmapUrl, heatmapLabel }: Par
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       <figure className="space-y-1.5">
-        <img
-          src={imageUrl}
-          alt={`Captured image of part ${serial}`}
-          className="aspect-square w-full rounded-md border border-border bg-muted object-contain"
-        />
+        <EvidenceImage src={imageUrl} alt={`Captured image of part ${serial}`} />
         <figcaption className="text-xs text-muted-foreground">Captured image</figcaption>
       </figure>
       <figure className="space-y-1.5">
         {heatmapUrl ? (
-          <img
-            src={heatmapUrl}
-            alt={`Anomaly heatmap of part ${serial}`}
-            className="aspect-square w-full rounded-md border border-border bg-muted object-contain"
-          />
+          <EvidenceImage src={heatmapUrl} alt={`Anomaly heatmap of part ${serial}`} />
         ) : (
           <div className="flex aspect-square w-full flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border text-muted-foreground">
             <ImageOff className="h-5 w-5" aria-hidden />

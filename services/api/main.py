@@ -40,6 +40,7 @@ from app.runtime import (  # noqa: E402
     upload,
 )
 from app.service.files import warm_listing_cache  # noqa: E402
+from app.service.stats import warm_in_background as warm_dashboard_stats  # noqa: E402
 
 # --- Startup validation ---
 # Required B2 settings are declared with empty-string defaults so that
@@ -83,8 +84,11 @@ async def lifespan(_app: "FastAPI"):
     # Fire-and-forget: the full-bucket listing that /files and /files/stats both
     # need takes 8-20s on a large bucket. Scanning it here means the first page
     # view reads a warm cache instead of watching skeletons.
+    # Both warm-ups run on daemon threads: startup (and /health) never waits on
+    # B2, which can take a minute to even refuse a connection.
     if settings.warm_list_cache_on_startup:
         warm_listing_cache()
+        warm_dashboard_stats()
     yield
 
 # --- Structured JSON logging ---
