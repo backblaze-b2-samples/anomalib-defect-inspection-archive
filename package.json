@@ -33,7 +33,7 @@
     "test:verify": "pnpm --filter @anomalib-defect-inspection-archive/web exec playwright test --project=verify"
   },
   "devDependencies": {
-    "concurrently": "^9.2.5"
+    "concurrently": "^10.0.7"
   },
   "engines": {
     "node": ">=20",
