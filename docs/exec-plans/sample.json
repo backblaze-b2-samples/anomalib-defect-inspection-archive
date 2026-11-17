@@ -47,5 +47,15 @@
   ],
   "attribution_token": "b2ai-anomalib-inspection-archive",
   "repo": { "org": "backblaze-b2-samples", "name": "anomalib-b2-inspection-archive" },
-  "screenshots": []
+  "screenshots": [
+    {"path": "docs/images/dashboard.png", "alt": "Dashboard with inspection metrics, parts-per-day chart and archive bytes in B2", "caption": "**Dashboard** — Parts inspected, parts above threshold, review backlog, verdicts and model versions, a parts-per-day chart, archive bytes in B2 by kind, and the latest parts above threshold."},
+    {"path": "docs/images/capture.png", "alt": "Capture form for storing and scoring a part image", "caption": "**Capture** — Pick a line, enter a part serial and drop an image; it is stored in B2 under the line and date and scored by the line's active PatchCore model."},
+    {"path": "docs/images/review-queue.png", "alt": "Review queue with a captured candle image, its anomaly heatmap and the verdict form", "caption": "**Review Queue** — Parts scoring at or above threshold wait here, oldest first, with the captured image beside its anomaly heatmap and a pass or fail verdict form."},
+    {"path": "docs/images/lines.png", "alt": "Lines page listing inspection lines and their active model versions", "caption": "**Lines** — Every inspection line with its description, active model version and last update."},
+    {"path": "docs/images/line-detail.png", "alt": "Line detail with part counts, score distribution and today's parts", "caption": "**Line detail** — Per-line counts, the PatchCore score distribution, and the day's parts with status, score, threshold and model version."},
+    {"path": "docs/images/model-versions.png", "alt": "Model versions table with activation controls and the train-new-version form", "caption": "**Models** — PatchCore versions trained from images read back from B2, with AUROC and threshold, an activate control, and the form to train a new version."},
+    {"path": "docs/images/model-version-detail.png", "alt": "Model version detail with configuration, metrics and the training-set manifest", "caption": "**Model version detail** — One version's configuration, metrics and the training-set manifest of B2 images with their ETags."},
+    {"path": "docs/images/trace.png", "alt": "Trace view of a failed part with image, heatmap, score history and verdict history", "caption": "**Trace** — A part serial opened to its image, heatmap, score history and verdict history, with controls to change the verdict or re-score."},
+    {"path": "docs/images/archive.png", "alt": "Inspection archive grid of part images paired with their heatmaps", "caption": "**Inspection Archive** — Every image and heatmap a line has written to B2, paired by capture date, with tabs for scores, labels and models."}
+  ]
 }

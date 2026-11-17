@@ -25,7 +25,43 @@ app's own features instead of rebuilding the same shell. Storage is
 <!-- gen:end readme-header -->
 
 <!-- gen:begin readme-screenshots -->
+## What it looks like
 
+**Dashboard** — Parts inspected, parts above threshold, review backlog, verdicts and model versions, a parts-per-day chart, archive bytes in B2 by kind, and the latest parts above threshold.
+
+![Dashboard with inspection metrics, parts-per-day chart and archive bytes in B2](docs/images/dashboard.png)
+
+**Capture** — Pick a line, enter a part serial and drop an image; it is stored in B2 under the line and date and scored by the line's active PatchCore model.
+
+![Capture form for storing and scoring a part image](docs/images/capture.png)
+
+**Review Queue** — Parts scoring at or above threshold wait here, oldest first, with the captured image beside its anomaly heatmap and a pass or fail verdict form.
+
+![Review queue with a captured candle image, its anomaly heatmap and the verdict form](docs/images/review-queue.png)
+
+**Lines** — Every inspection line with its description, active model version and last update.
+
+![Lines page listing inspection lines and their active model versions](docs/images/lines.png)
+
+**Line detail** — Per-line counts, the PatchCore score distribution, and the day's parts with status, score, threshold and model version.
+
+![Line detail with part counts, score distribution and today's parts](docs/images/line-detail.png)
+
+**Models** — PatchCore versions trained from images read back from B2, with AUROC and threshold, an activate control, and the form to train a new version.
+
+![Model versions table with activation controls and the train-new-version form](docs/images/model-versions.png)
+
+**Model version detail** — One version's configuration, metrics and the training-set manifest of B2 images with their ETags.
+
+![Model version detail with configuration, metrics and the training-set manifest](docs/images/model-version-detail.png)
+
+**Trace** — A part serial opened to its image, heatmap, score history and verdict history, with controls to change the verdict or re-score.
+
+![Trace view of a failed part with image, heatmap, score history and verdict history](docs/images/trace.png)
+
+**Inspection Archive** — Every image and heatmap a line has written to B2, paired by capture date, with tabs for scores, labels and models.
+
+![Inspection archive grid of part images paired with their heatmaps](docs/images/archive.png)
 <!-- gen:end readme-screenshots -->
 
 ## How it works
