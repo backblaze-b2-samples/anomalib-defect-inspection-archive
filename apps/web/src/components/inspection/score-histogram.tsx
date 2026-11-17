@@ -47,7 +47,7 @@ export function ScoreHistogram({
   return (
     <div className="space-y-2">
       <ChartContainer config={chartConfig} className="h-[200px] w-full">
-        <BarChart data={data} margin={{ top: 8, right: 4, left: -16, bottom: 0 }}>
+        <BarChart data={data} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="var(--border)" />
           <XAxis dataKey="score" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
           <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={28} fontSize={11} />

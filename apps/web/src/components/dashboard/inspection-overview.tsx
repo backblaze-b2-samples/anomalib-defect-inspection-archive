@@ -116,7 +116,7 @@ export function InspectionOverview() {
               <Skeleton className="h-[220px]" />
             ) : (
               <ChartContainer config={chartConfig} className="h-[220px] w-full">
-                <BarChart data={perDay} margin={{ top: 8, right: 4, left: -16, bottom: 0 }}>
+                <BarChart data={perDay} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
                   <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="var(--border)" />
                   <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
                   <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={28} fontSize={11} />
