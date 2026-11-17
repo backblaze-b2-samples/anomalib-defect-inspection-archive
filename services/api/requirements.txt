@@ -13,7 +13,7 @@ Pillow>=13.0.0
 pypdf>=6.0.0
 # Inspection archive: Parquet score files and heatmap rendering.
 pyarrow>=18.0.0
-numpy>=2.0.0
+numpy>=2.5.4
 
 # Dev / quality
 ruff>=0.8.0
