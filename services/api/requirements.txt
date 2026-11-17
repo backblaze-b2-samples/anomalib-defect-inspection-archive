@@ -12,7 +12,7 @@ boto3>=1.35.0
 Pillow>=13.0.0
 pypdf>=6.0.0
 # Inspection archive: Parquet score files and heatmap rendering.
-pyarrow>=18.0.0
+pyarrow>=26.0.1
 numpy>=2.0.0
 
 # Dev / quality
