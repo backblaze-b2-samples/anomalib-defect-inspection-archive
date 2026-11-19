@@ -275,6 +275,10 @@ shell chain.
 
 Normal API tests deny socket connections and mock the B2 boundary in `/health`,
 so a populated developer `.env` cannot turn this gate into a live service test.
+The test bootstrap disables both dotenv readers before importing the app. Tests
+that construct real S3 clients supply fake B2 settings, including the region and
+keys, and the shared fixtures clear both client caches before and after each test.
+Direct settings construction in tests uses `_env_file=None` to avoid local files.
 To intentionally validate real connectivity with approved non-production
 credentials, run `RUN_LIVE_B2_TESTS=1 pnpm test:live:b2`. Without that explicit
 flag the live test skips, and it is never part of `pnpm verify` or CI.

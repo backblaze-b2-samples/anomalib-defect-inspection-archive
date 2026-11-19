@@ -53,6 +53,6 @@ def test_endpoint_url_is_derived_from_the_region():
     # A deliberately unreal region: a real B2 region slug in a non-doc source
     # file is exactly what the hardcoded-region check forbids.
     assert (
-        Settings(b2_region="example-region-000").endpoint_url
+        Settings(_env_file=None, b2_region="example-region-000").endpoint_url
         == "https://s3.example-region-000.backblazeb2.com"
     )
