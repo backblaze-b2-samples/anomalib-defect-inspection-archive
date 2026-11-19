@@ -1,9 +1,17 @@
 import socket
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from pydantic_settings import DotEnvSettingsSource
 
-from main import app
+# Disable both dotenv readers before importing the app so normal tests never
+# read developer credentials. Environment variables remain available to tests.
+with (
+    patch("dotenv.load_dotenv", return_value=False),
+    patch.object(DotEnvSettingsSource, "_read_env_files", return_value={}),
+):
+    from main import app
 
 
 @pytest.fixture(autouse=True)

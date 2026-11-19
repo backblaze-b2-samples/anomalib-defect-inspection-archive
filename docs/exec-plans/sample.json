@@ -46,7 +46,7 @@
     { "name": "INSPECTION_CACHE_DIR", "required": false, "secret": false, "note": "local cache Anomalib reads images from, filled from B2 (default services/api/.cache/inspection)" }
   ],
   "attribution_token": "b2ai-anomalib-inspection-archive",
-  "repo": { "org": "backblaze-b2-samples", "name": "anomalib-b2-inspection-archive" },
+  "repo": { "org": "backblaze-b2-samples", "name": "anomalib-defect-inspection-archive" },
   "screenshots": [
     {"path": "docs/images/dashboard.png", "alt": "Dashboard with inspection metrics, parts-per-day chart and archive bytes in B2", "caption": "**Dashboard** — Parts inspected, parts above threshold, review backlog, verdicts and model versions, a parts-per-day chart, archive bytes in B2 by kind, and the latest parts above threshold."},
     {"path": "docs/images/capture.png", "alt": "Capture form for storing and scoring a part image", "caption": "**Capture** — Pick a line, enter a part serial and drop an image; it is stored in B2 under the line and date and scored by the line's active PatchCore model."},

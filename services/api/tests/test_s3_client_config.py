@@ -3,6 +3,8 @@
 import ast
 from pathlib import Path
 
+from app.config import Settings
+from app.repo import b2_client
 from app.repo.b2_client import get_s3_bulk_client, get_s3_client
 
 API_ROOT = Path(__file__).resolve().parents[1]
@@ -45,9 +47,25 @@ def test_every_boto3_client_sets_user_agent_and_checksums():
         assert config.get("response_checksum_validation") == "when_required", where
 
 
-def test_runtime_client_config():
+def test_runtime_client_config(monkeypatch):
+    # Exercise real boto3 construction with test-owned settings. The shared
+    # reset_shared_module_state fixture clears both client caches around tests.
+    monkeypatch.setattr(
+        b2_client,
+        "settings",
+        Settings(
+            _env_file=None,
+            b2_region="example-region-000",
+            b2_application_key_id="test-key-id",
+            b2_application_key="test-secret-key",
+            b2_bucket_name="test-bucket",
+            b2_public_url_base="",
+        ),
+    )
     for client in (get_s3_client(), get_s3_bulk_client()):
         config = client.meta.config
+        assert config.region_name == "example-region-000"
+        assert client.meta.endpoint_url == "https://s3.example-region-000.backblazeb2.com"
         assert config.user_agent_extra == UA
         assert config.request_checksum_calculation == "when_required"
         assert config.response_checksum_validation == "when_required"
