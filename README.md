@@ -104,8 +104,8 @@ its data back from the same bucket, so the archive *is* the training set.
 You need: Node.js >= 20, pnpm >= 10, Python >= 3.12, and a free **[Backblaze B2 account](https://www.backblaze.com/sign-up/ai-cloud-storage?utm_source=github&utm_medium=referral&utm_campaign=ai_artifacts&utm_content=b2ai-anomalib-inspection-archive)**. A GPU is optional.
 
 ```bash
-git clone https://github.com/backblaze-b2-samples/anomalib-b2-inspection-archive.git
-cd anomalib-b2-inspection-archive
+git clone https://github.com/backblaze-b2-samples/anomalib-defect-inspection-archive.git
+cd anomalib-defect-inspection-archive
 pnpm run setup        # .env from .env.example, workspace deps, API venv from requirements.lock
 pnpm setup:ml         # optional ML extra: Anomalib, PyTorch (CPU wheels on macOS), Lightning, timm
 ```
@@ -293,7 +293,7 @@ seam are enforced by tests and `pnpm verify`, not by convention.
 
 Backblaze maintains this open-source sample to help developers get started with B2.
 Report repository defects and feature requests through
-[GitHub Issues](https://github.com/backblaze-b2-samples/anomalib-b2-inspection-archive/issues);
+[GitHub Issues](https://github.com/backblaze-b2-samples/anomalib-defect-inspection-archive/issues);
 for B2 account, billing, service, or API help, use
 [Backblaze Support](https://www.backblaze.com/help). This sample is not covered by the
 Backblaze service level agreement, and no SLA is provided for the repository
